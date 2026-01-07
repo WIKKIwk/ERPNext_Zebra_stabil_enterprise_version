@@ -31,6 +31,17 @@ The EPC generator stores state in:
 - otherwise `${XDG_STATE_HOME}/zebra-bridge/epc-generator.json`
 - otherwise `~/.local/state/zebra-bridge/epc-generator.json`
 
+## Run
+
+On Linux, run:
+
+```
+./run.sh
+```
+
+The script downloads .NET 8 locally into `.dotnet/` if `dotnet` is not already installed
+(requires `curl` or `wget`).
+
 ## Example Calls
 
 Encode a single EPC:
