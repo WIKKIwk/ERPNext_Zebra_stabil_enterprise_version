@@ -8,10 +8,12 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton(BuildPrinterOptions(builder.Configuration));
 builder.Services.AddSingleton(BuildScaleOptions(builder.Configuration));
 builder.Services.AddSingleton(BuildErpAgentOptions(builder.Configuration));
+builder.Services.AddSingleton(BuildEpcGeneratorOptions(builder.Configuration));
 
 builder.Services.AddSingleton<IScaleState, ScaleState>();
 builder.Services.AddSingleton<PrintCoordinator>();
 builder.Services.AddSingleton<IPrinterTransportFactory, PrinterTransportFactory>();
+builder.Services.AddSingleton<IEpcGenerator, FileEpcGenerator>();
 builder.Services.AddSingleton<IEncodeService, EncodeService>();
 
 var app = builder.Build();
@@ -160,6 +162,14 @@ static ErpAgentOptions BuildErpAgentOptions(IConfiguration config)
 {
     var options = new ErpAgentOptions();
     config.GetSection("ErpAgent").Bind(options);
+    options.ApplyEnvironment();
+    return options;
+}
+
+static EpcGeneratorOptions BuildEpcGeneratorOptions(IConfiguration config)
+{
+    var options = new EpcGeneratorOptions();
+    config.GetSection("EpcGenerator").Bind(options);
     options.ApplyEnvironment();
     return options;
 }
