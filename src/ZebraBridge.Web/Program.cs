@@ -85,6 +85,10 @@ app.MapPost("/api/v1/encode-batch", async (EncodeBatchRequestDto request, Printe
     {
         return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
     }
+    catch (EpcGeneratorException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: StatusCodes.Status500InternalServerError);
+    }
     catch (PrinterUnsupportedOperationException ex)
     {
         return Results.Problem(ex.Message, statusCode: StatusCodes.Status501NotImplemented);
