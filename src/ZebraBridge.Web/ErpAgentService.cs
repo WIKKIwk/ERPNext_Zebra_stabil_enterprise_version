@@ -227,7 +227,8 @@ public sealed class ErpAgentService : BackgroundService
                 ["zebra_usb_timeout_ms"] = _printerOptions.UsbTimeoutMs,
                 ["zebra_feed_after_encode"] = _printerOptions.FeedAfterEncode,
                 ["zebra_rfid_labels_to_try_on_error"] = _printerOptions.LabelsToTryOnError,
-                ["zebra_rfid_error_handling_action"] = _printerOptions.ErrorHandlingAction
+                ["zebra_rfid_error_handling_action"] = _printerOptions.ErrorHandlingAction,
+                ["zebra_template_enabled"] = !string.IsNullOrWhiteSpace(_printerOptions.RfidZplTemplate)
             };
         }
 
