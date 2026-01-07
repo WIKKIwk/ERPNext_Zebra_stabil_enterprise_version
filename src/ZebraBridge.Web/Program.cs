@@ -9,6 +9,7 @@ builder.Services.AddSingleton(BuildPrinterOptions(builder.Configuration));
 builder.Services.AddSingleton(BuildScaleOptions(builder.Configuration));
 builder.Services.AddSingleton(BuildErpAgentOptions(builder.Configuration));
 builder.Services.AddSingleton(BuildEpcGeneratorOptions(builder.Configuration));
+builder.Services.AddHttpClient();
 
 builder.Services.AddSingleton<IScaleState, ScaleState>();
 builder.Services.AddSingleton<PrintCoordinator>();
@@ -16,6 +17,7 @@ builder.Services.AddSingleton<IPrinterTransportFactory, PrinterTransportFactory>
 builder.Services.AddSingleton<IEpcGenerator, FileEpcGenerator>();
 builder.Services.AddSingleton<IEncodeService, EncodeService>();
 builder.Services.AddHostedService<ScaleReaderService>();
+builder.Services.AddHostedService<ErpAgentService>();
 
 var app = builder.Build();
 
