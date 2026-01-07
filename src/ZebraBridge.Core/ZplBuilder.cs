@@ -4,6 +4,22 @@ public static class ZplBuilder
 {
     public static string BuildFeedOneLabel(string eol) => string.Concat("~PH", eol);
 
+    public static string BuildResumePrinting(string eol) => string.Concat("~PS", eol);
+
+    public static string BuildResetPrinter(string eol) => string.Concat("~JA", eol);
+
+    public static string BuildEncodeCommandStream(string epcHex, RfidWriteOptions options, string eol)
+    {
+        var stream = BuildResumePrinting(eol) + BuildRfidWrite(epcHex, options, eol);
+
+        if (options.FeedAfterEncode && !options.PrintHumanReadable)
+        {
+            stream += BuildFeedOneLabel(eol);
+        }
+
+        return stream;
+    }
+
     public static string BuildRfidSetup(RfidWriteOptions options)
     {
         var action = (options.ErrorHandlingAction ?? "N").Trim().ToUpperInvariant();
