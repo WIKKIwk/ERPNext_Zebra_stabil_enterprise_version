@@ -51,8 +51,92 @@ app.MapPost("/api/v1/encode", async (EncodeRequestDto request, PrinterOptions pr
     }
 });
 
-app.MapPost("/api/v1/encode-batch", () => Results.StatusCode(StatusCodes.Status501NotImplemented));
-app.MapPost("/api/v1/transceive", () => Results.StatusCode(StatusCodes.Status501NotImplemented));
+app.MapPost("/api/v1/encode-batch", async (EncodeBatchRequestDto request, PrinterOptions printer, IEncodeService service) =>
+{
+    try
+    {
+        var feedAfterEncode = request.FeedAfterEncode ?? printer.FeedAfterEncode;
+        var result = await service.EncodeBatchAsync(request.ToServiceRequest(feedAfterEncode));
+        return Results.Ok(new EncodeBatchResponseDto(
+            result.Ok,
+            result.TotalLabelsRequested,
+            result.TotalLabelsSucceeded,
+            result.UniqueEpcsSucceeded,
+            result.Items
+                .Select(item => new EncodeBatchItemResultDto(item.EpcHex, item.Copies, item.Ok, item.Message))
+                .ToList()
+        ));
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { ok = false, message = ex.Message });
+    }
+    catch (InvalidEpcException ex)
+    {
+        return Results.BadRequest(new { ok = false, message = ex.Message });
+    }
+    catch (PrinterNotFoundException ex)
+    {
+        return Results.NotFound(new { ok = false, message = ex.Message });
+    }
+    catch (PrinterCommunicationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+    catch (PrinterUnsupportedOperationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: StatusCodes.Status501NotImplemented);
+    }
+    catch (NotSupportedException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: StatusCodes.Status501NotImplemented);
+    }
+    catch (ZebraBridgeException ex)
+    {
+        return Results.BadRequest(new { ok = false, message = ex.Message });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(ex.Message);
+    }
+});
+
+app.MapPost("/api/v1/transceive", async (TransceiveRequestDto request, IEncodeService service) =>
+{
+    try
+    {
+        var result = await service.TransceiveAsync(request.ToServiceRequest());
+        return Results.Ok(new TransceiveResponseDto(result.Ok, result.Message, result.Output, result.OutputBytes));
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { ok = false, message = ex.Message });
+    }
+    catch (PrinterNotFoundException ex)
+    {
+        return Results.NotFound(new { ok = false, message = ex.Message });
+    }
+    catch (PrinterCommunicationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+    catch (PrinterUnsupportedOperationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: StatusCodes.Status501NotImplemented);
+    }
+    catch (NotSupportedException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: StatusCodes.Status501NotImplemented);
+    }
+    catch (ZebraBridgeException ex)
+    {
+        return Results.BadRequest(new { ok = false, message = ex.Message });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(ex.Message);
+    }
+});
 
 app.Run();
 
