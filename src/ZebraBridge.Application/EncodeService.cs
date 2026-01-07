@@ -55,15 +55,18 @@ public sealed class EncodeService : IEncodeService
     private readonly PrinterOptions _printerOptions;
     private readonly IPrinterTransportFactory _transportFactory;
     private readonly PrintCoordinator _printCoordinator;
+    private readonly IEpcGenerator _epcGenerator;
 
     public EncodeService(
         PrinterOptions printerOptions,
         IPrinterTransportFactory transportFactory,
-        PrintCoordinator printCoordinator)
+        PrintCoordinator printCoordinator,
+        IEpcGenerator epcGenerator)
     {
         _printerOptions = printerOptions;
         _transportFactory = transportFactory;
         _printCoordinator = printCoordinator;
+        _epcGenerator = epcGenerator;
     }
 
     public async Task<EncodeResult> EncodeAsync(EncodeRequest request, CancellationToken cancellationToken = default)
@@ -199,11 +202,20 @@ public sealed class EncodeService : IEncodeService
         );
     }
 
-    private static List<EncodeBatchItem> NormalizeBatchItems(EncodeBatchRequest request)
+    private List<EncodeBatchItem> NormalizeBatchItems(EncodeBatchRequest request)
     {
         if (request.Mode == EncodeBatchMode.Auto)
         {
-            throw new NotSupportedException("Auto batch mode is not implemented yet.");
+            var epcs = _epcGenerator.NextEpcs(request.AutoCount);
+            var autoItems = new List<EncodeBatchItem>(epcs.Count);
+            foreach (var epc in epcs)
+            {
+                var epcHex = Epc.Normalize(epc);
+                Epc.Validate(epcHex);
+                autoItems.Add(new EncodeBatchItem(epcHex, 1));
+            }
+
+            return autoItems;
         }
 
         if (request.Items is null || request.Items.Count == 0)
