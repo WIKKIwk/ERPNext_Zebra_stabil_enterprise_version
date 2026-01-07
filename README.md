@@ -9,6 +9,7 @@ It focuses on a stable encode pipeline first (no UI yet).
 - Batch encode: `POST /api/v1/encode-batch` (manual items or auto-generate EPCs)
 - EPC generator with a persistent counter (file-backed)
 - Scale reader (serial): `GET /api/v1/scale` + `GET /api/v1/scale/ports`
+- ERP agent (poll/register/reply) for ERP-driven commands
 - Raw ZPL transceive endpoint (supported only if the transport can read)
 - Linux device file output (`/dev/usb/lpX`) and Windows raw printer output
 
@@ -25,6 +26,7 @@ Edit `src/ZebraBridge.Web/appsettings.json` or set environment overrides:
 - Printer: `ZEBRA_DEVICE_PATH`, `ZEBRA_PRINTER_NAME`, `ZEBRA_FEED_AFTER_ENCODE`
 - EPC generator: `ZEBRA_EPC_PREFIX_HEX`, `ZEBRA_EPC_STATE_PATH`, `ZEBRA_STATE_DIR`
 - ZPL line ending: `ZEBRA_ZPL_EOL` (default `\n`)
+- ERP agent: `ZEBRA_ERP_URL`, `ZEBRA_ERP_AUTH`, `ZEBRA_ERP_AGENT_ID`, `ZEBRA_ERP_DEVICE`
 
 The EPC generator stores state in:
 
