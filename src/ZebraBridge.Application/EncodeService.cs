@@ -206,6 +206,11 @@ public sealed class EncodeService : IEncodeService
     {
         if (request.Mode == EncodeBatchMode.Auto)
         {
+            if (request.AutoCount < 1 || request.AutoCount > 1000)
+            {
+                throw new ArgumentException("AutoCount must be between 1 and 1000.");
+            }
+
             var epcs = _epcGenerator.NextEpcs(request.AutoCount);
             var autoItems = new List<EncodeBatchItem>(epcs.Count);
             foreach (var epc in epcs)
