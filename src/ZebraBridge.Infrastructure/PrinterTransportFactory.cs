@@ -13,7 +13,9 @@ public sealed class PrinterTransportFactory : IPrinterTransportFactory
 
     public IPrinterTransport Create()
     {
-        if (OperatingSystem.IsWindows())
+        var mode = (_options.Transport ?? string.Empty).Trim().ToLowerInvariant();
+
+        if (OperatingSystem.IsWindows() && mode != "usb")
         {
             var printerName = string.IsNullOrWhiteSpace(_options.PrinterName)
                 ? _options.DevicePath
@@ -25,6 +27,11 @@ public sealed class PrinterTransportFactory : IPrinterTransportFactory
             }
 
             return new WindowsRawPrinterTransport(printerName!);
+        }
+
+        if (mode == "usb")
+        {
+            return new LibUsbPrinterTransport(_options.VendorId, _options.ProductId, _options.UsbTimeoutMs);
         }
 
         var devicePath = string.IsNullOrWhiteSpace(_options.DevicePath)
