@@ -75,7 +75,11 @@ public sealed class EncodeService : IEncodeService
         Epc.Validate(epcHex);
 
         var options = BuildOptions(request.PrintHumanReadable, request.Copies, request.FeedAfterEncode);
-        var zpl = ZplBuilder.BuildEncodeCommandStream(epcHex, options, _printerOptions.ZplEol);
+        var zpl = ZplBuilder.BuildEncodeCommandStream(
+            epcHex,
+            options,
+            _printerOptions.ZplEol,
+            _printerOptions.RfidZplTemplate);
 
         if (request.DryRun)
         {
@@ -115,7 +119,11 @@ public sealed class EncodeService : IEncodeService
                 try
                 {
                     var options = BuildOptions(request.PrintHumanReadable, item.Copies, request.FeedAfterEncode);
-                    var zpl = ZplBuilder.BuildEncodeCommandStream(item.Epc, options, _printerOptions.ZplEol);
+                    var zpl = ZplBuilder.BuildEncodeCommandStream(
+                        item.Epc,
+                        options,
+                        _printerOptions.ZplEol,
+                        _printerOptions.RfidZplTemplate);
 
                     await transport.SendAsync(Encoding.ASCII.GetBytes(zpl), cancellationToken);
 
