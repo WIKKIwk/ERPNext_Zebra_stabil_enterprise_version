@@ -39,3 +39,10 @@ public class PrinterUnsupportedOperationException : ZebraBridgeException
     {
     }
 }
+
+public class EpcGeneratorException : ZebraBridgeException
+{
+    public EpcGeneratorException(string message) : base(message)
+    {
+    }
+}
