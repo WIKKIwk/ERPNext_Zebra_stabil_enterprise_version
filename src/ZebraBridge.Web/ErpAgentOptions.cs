@@ -11,6 +11,10 @@ public sealed class ErpAgentOptions
     public string RegisterEndpoint { get; set; } = "/api/method/rfidenter.rfidenter.api.register_agent";
     public string PollEndpoint { get; set; } = "/api/method/rfidenter.rfidenter.api.agent_poll";
     public string ReplyEndpoint { get; set; } = "/api/method/rfidenter.rfidenter.api.agent_reply";
+    public int HeartbeatIntervalMs { get; set; } = 10_000;
+    public int PollIntervalMs { get; set; } = 800;
+    public int PollMax { get; set; } = 5;
+    public string Version { get; set; } = "zebra-bridge-v1";
 
     public void ApplyEnvironment()
     {
@@ -23,6 +27,10 @@ public sealed class ErpAgentOptions
         RegisterEndpoint = Override(RegisterEndpoint, "ZEBRA_ERP_REGISTER_ENDPOINT") ?? RegisterEndpoint;
         PollEndpoint = Override(PollEndpoint, "ZEBRA_ERP_POLL_ENDPOINT") ?? PollEndpoint;
         ReplyEndpoint = Override(ReplyEndpoint, "ZEBRA_ERP_REPLY_ENDPOINT") ?? ReplyEndpoint;
+        HeartbeatIntervalMs = OverrideInt(HeartbeatIntervalMs, "ZEBRA_ERP_HEARTBEAT_MS", "ERP_AGENT_INTERVAL_MS");
+        PollIntervalMs = OverrideInt(PollIntervalMs, "ZEBRA_ERP_POLL_MS", "ERP_RPC_POLL_MS");
+        PollMax = OverrideInt(PollMax, "ZEBRA_ERP_POLL_MAX", "ERP_RPC_POLL_MAX");
+        Version = Override(Version, "ZEBRA_ERP_AGENT_VERSION") ?? Version;
     }
 
     private static string? Override(string? current, string envKey)
@@ -46,6 +54,23 @@ public sealed class ErpAgentOptions
         if (s is "0" or "false" or "no" or "n" or "off")
         {
             return false;
+        }
+        return current;
+    }
+
+    private static int OverrideInt(int current, params string[] envKeys)
+    {
+        foreach (var envKey in envKeys)
+        {
+            var raw = Environment.GetEnvironmentVariable(envKey);
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                continue;
+            }
+            if (int.TryParse(raw.Trim(), out var parsed))
+            {
+                return parsed;
+            }
         }
         return current;
     }
