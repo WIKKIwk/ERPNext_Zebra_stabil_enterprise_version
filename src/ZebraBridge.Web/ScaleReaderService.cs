@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO.Ports;
+using System.Net.Http.Json;
 using System.Text;
 using System.Text.RegularExpressions;
 using ZebraBridge.Core;
@@ -17,12 +18,26 @@ public sealed class ScaleReaderService : BackgroundService
 
     private readonly ScaleOptions _options;
     private readonly IScaleState _scaleState;
+    private readonly ErpAgentOptions _erpOptions;
+    private readonly IHttpClientFactory _clientFactory;
     private readonly ILogger<ScaleReaderService> _logger;
+    private readonly SemaphoreSlim _pushLock = new(1, 1);
 
-    public ScaleReaderService(ScaleOptions options, IScaleState scaleState, ILogger<ScaleReaderService> logger)
+    private long _lastPushTs;
+    private double? _lastPushWeight;
+    private bool? _lastPushStable;
+
+    public ScaleReaderService(
+        ScaleOptions options,
+        IScaleState scaleState,
+        ErpAgentOptions erpOptions,
+        IHttpClientFactory clientFactory,
+        ILogger<ScaleReaderService> logger)
     {
         _options = options;
         _scaleState = scaleState;
+        _erpOptions = erpOptions;
+        _clientFactory = clientFactory;
         _logger = logger;
     }
 
@@ -130,6 +145,8 @@ public sealed class ScaleReaderService : BackgroundService
                 Raw: rawBuffer.ToString(),
                 Error: string.Empty
             ));
+
+            await MaybePushAsync(weight, unit, stable, port.PortName, stoppingToken);
         }
     }
 
@@ -213,6 +230,130 @@ public sealed class ScaleReaderService : BackgroundService
         }
 
         return Math.Abs(weight - lastWeight.Value) >= Math.Max(minChange, 0);
+    }
+
+    private async Task MaybePushAsync(
+        double weight,
+        string unit,
+        bool? stable,
+        string port,
+        CancellationToken token)
+    {
+        if (!_options.PushEnabled)
+        {
+            return;
+        }
+
+        var baseUrl = NormalizeBaseUrl(_erpOptions.BaseUrl);
+        var auth = NormalizeAuth(_erpOptions.Auth);
+        if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(auth))
+        {
+            return;
+        }
+
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (_lastPushTs > 0 && nowMs - _lastPushTs < _options.PushMinIntervalMs)
+        {
+            return;
+        }
+
+        if (_lastPushWeight is not null &&
+            Math.Abs(weight - _lastPushWeight.Value) < _options.PushMinDelta &&
+            stable == _lastPushStable)
+        {
+            return;
+        }
+
+        if (!await _pushLock.WaitAsync(0, token))
+        {
+            return;
+        }
+
+        try
+        {
+            var device = string.IsNullOrWhiteSpace(_options.Device) ? _erpOptions.Device : _options.Device;
+            if (string.IsNullOrWhiteSpace(device))
+            {
+                device = Environment.MachineName;
+            }
+
+            var payload = new Dictionary<string, object?>
+            {
+                ["weight"] = weight,
+                ["unit"] = unit,
+                ["stable"] = stable,
+                ["port"] = port,
+                ["ts"] = nowMs,
+                ["device"] = device
+            };
+
+            var headers = new Dictionary<string, string>
+            {
+                ["Authorization"] = auth
+            };
+            if (!string.IsNullOrWhiteSpace(_erpOptions.Secret))
+            {
+                headers["X-RFIDenter-Token"] = _erpOptions.Secret;
+            }
+
+            var url = $"{baseUrl}{_options.PushEndpoint}";
+            await PostJsonAsync(url, payload, headers, token);
+
+            _lastPushTs = nowMs;
+            _lastPushWeight = weight;
+            _lastPushStable = stable;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Scale push failed.");
+        }
+        finally
+        {
+            _pushLock.Release();
+        }
+    }
+
+    private async Task PostJsonAsync(
+        string url,
+        Dictionary<string, object?> payload,
+        Dictionary<string, string> headers,
+        CancellationToken token)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(payload)
+        };
+        foreach (var header in headers)
+        {
+            if (!string.IsNullOrWhiteSpace(header.Value))
+            {
+                request.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            }
+        }
+
+        var client = _clientFactory.CreateClient();
+        using var response = await client.SendAsync(request, token);
+        response.EnsureSuccessStatusCode();
+    }
+
+    private static string NormalizeBaseUrl(string? raw)
+    {
+        var value = (raw ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+        return value.EndsWith("/", StringComparison.Ordinal) ? value[..^1] : value;
+    }
+
+    private static string NormalizeAuth(string? raw)
+    {
+        var value = (raw ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+        return value.StartsWith("token ", StringComparison.OrdinalIgnoreCase) ? value : $"token {value}";
     }
 
     private void UpdateError(string message, string? port = null)
