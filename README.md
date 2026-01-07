@@ -8,6 +8,7 @@ It focuses on a stable encode pipeline first (no UI yet).
 - Single encode: `POST /api/v1/encode`
 - Batch encode: `POST /api/v1/encode-batch` (manual items or auto-generate EPCs)
 - EPC generator with a persistent counter (file-backed)
+- Scale reader (serial): `GET /api/v1/scale` + `GET /api/v1/scale/ports`
 - Raw ZPL transceive endpoint (supported only if the transport can read)
 - Linux device file output (`/dev/usb/lpX`) and Windows raw printer output
 
