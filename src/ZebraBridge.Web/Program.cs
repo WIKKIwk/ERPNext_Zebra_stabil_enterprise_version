@@ -22,6 +22,9 @@ builder.Services.AddHostedService<ErpAgentService>();
 
 var app = builder.Build();
 
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.MapGet("/api/v1/health", () => Results.Ok(new
 {
     ok = true,
