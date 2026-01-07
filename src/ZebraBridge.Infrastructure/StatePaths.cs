@@ -4,11 +4,12 @@ namespace ZebraBridge.Infrastructure;
 
 public static class StatePaths
 {
-    public static string GetStateDir(EpcGeneratorOptions options)
+    public static string GetStateDir()
     {
-        if (!string.IsNullOrWhiteSpace(options.StateDir))
+        var explicitDir = Environment.GetEnvironmentVariable("ZEBRA_STATE_DIR");
+        if (!string.IsNullOrWhiteSpace(explicitDir))
         {
-            return ExpandHome(options.StateDir);
+            return ExpandHome(explicitDir);
         }
 
         var xdgState = Environment.GetEnvironmentVariable("XDG_STATE_HOME");
@@ -21,6 +22,16 @@ public static class StatePaths
         return Path.Combine(home, ".local", "state", "zebra-bridge");
     }
 
+    public static string GetStateDir(EpcGeneratorOptions options)
+    {
+        if (!string.IsNullOrWhiteSpace(options.StateDir))
+        {
+            return ExpandHome(options.StateDir);
+        }
+
+        return GetStateDir();
+    }
+
     public static string GetEpcGeneratorStatePath(EpcGeneratorOptions options)
     {
         if (!string.IsNullOrWhiteSpace(options.StatePath))
@@ -29,6 +40,17 @@ public static class StatePaths
         }
 
         return Path.Combine(GetStateDir(options), "epc-generator.json");
+    }
+
+    public static string GetErpConfigPath()
+    {
+        var explicitPath = Environment.GetEnvironmentVariable("ZEBRA_ERP_CONFIG_PATH");
+        if (!string.IsNullOrWhiteSpace(explicitPath))
+        {
+            return ExpandHome(explicitPath);
+        }
+
+        return Path.Combine(GetStateDir(), "erp-config.json");
     }
 
     private static string ExpandHome(string path)
