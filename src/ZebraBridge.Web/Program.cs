@@ -33,7 +33,8 @@ app.MapGet("/api/v1/config", (PrinterOptions printer) => Results.Ok(new
 {
     device_path = printer.DevicePath ?? string.Empty,
     feed_after_encode = printer.FeedAfterEncode,
-    zebra_template_enabled = !string.IsNullOrWhiteSpace(printer.RfidZplTemplate)
+    zebra_template_enabled = !string.IsNullOrWhiteSpace(printer.RfidZplTemplate),
+    transport = printer.Transport
 }));
 
 app.MapGet("/api/v1/scale", (IScaleState scaleState) => Results.Ok(scaleState.Latest));
