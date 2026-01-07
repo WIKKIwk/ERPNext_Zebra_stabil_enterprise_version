@@ -15,6 +15,7 @@ builder.Services.AddSingleton<PrintCoordinator>();
 builder.Services.AddSingleton<IPrinterTransportFactory, PrinterTransportFactory>();
 builder.Services.AddSingleton<IEpcGenerator, FileEpcGenerator>();
 builder.Services.AddSingleton<IEncodeService, EncodeService>();
+builder.Services.AddHostedService<ScaleReaderService>();
 
 var app = builder.Build();
 
@@ -33,7 +34,7 @@ app.MapGet("/api/v1/config", (PrinterOptions printer) => Results.Ok(new
 
 app.MapGet("/api/v1/scale", (IScaleState scaleState) => Results.Ok(scaleState.Latest));
 
-app.MapGet("/api/v1/scale/ports", () => Results.Ok(Array.Empty<object>()));
+app.MapGet("/api/v1/scale/ports", () => Results.Ok(ScalePortEnumerator.ListPorts()));
 
 app.MapPost("/api/v1/encode", async (EncodeRequestDto request, PrinterOptions printer, IEncodeService service) =>
 {
