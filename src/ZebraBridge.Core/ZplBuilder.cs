@@ -8,9 +8,13 @@ public static class ZplBuilder
 
     public static string BuildResetPrinter(string eol) => string.Concat("~JA", eol);
 
-    public static string BuildEncodeCommandStream(string epcHex, RfidWriteOptions options, string eol)
+    public static string BuildEncodeCommandStream(string epcHex, RfidWriteOptions options, string eol, string? template = null)
     {
-        var stream = BuildResumePrinting(eol) + BuildRfidWrite(epcHex, options, eol);
+        var zpl = string.IsNullOrWhiteSpace(template)
+            ? BuildRfidWrite(epcHex, options, eol)
+            : RenderRfidWriteTemplate(template!, epcHex, options, eol);
+
+        var stream = BuildResumePrinting(eol) + zpl;
 
         if (options.FeedAfterEncode && !options.PrintHumanReadable)
         {
@@ -71,6 +75,45 @@ public static class ZplBuilder
 
         lines.Add($"^PQ{copies}");
         lines.Add("^XZ");
+
+        return string.Join(eol, lines) + eol;
+    }
+
+    public static string RenderRfidWriteTemplate(string template, string epcHex, RfidWriteOptions options, string eol)
+    {
+        var epc = Epc.Normalize(epcHex);
+        Epc.Validate(epc);
+
+        var wordCount = Epc.HexToWordCount(epc);
+        var copies = Math.Max(options.Copies, 1);
+        var rfidSetup = BuildRfidSetup(options);
+        var errorHandling = (options.ErrorHandlingAction ?? "N").Trim().ToUpperInvariant();
+        var humanReadable = options.PrintHumanReadable
+            ? $"^FO50,50^A0N,30,30^FD{epc}^FS"
+            : string.Empty;
+
+        var rendered = template
+            .Replace("{epc_hex}", epc, StringComparison.Ordinal)
+            .Replace("{word_count}", wordCount.ToString(), StringComparison.Ordinal)
+            .Replace("{copies}", copies.ToString(), StringComparison.Ordinal)
+            .Replace("{tag_type}", options.TagType.ToString(), StringComparison.Ordinal)
+            .Replace("{memory_bank}", options.MemoryBank.ToString(), StringComparison.Ordinal)
+            .Replace("{word_pointer}", options.WordPointer.ToString(), StringComparison.Ordinal)
+            .Replace("{labels_to_try_on_error}", options.LabelsToTryOnError.ToString(), StringComparison.Ordinal)
+            .Replace("{error_handling_action}", errorHandling, StringComparison.Ordinal)
+            .Replace("{human_readable_zpl}", humanReadable, StringComparison.Ordinal)
+            .Replace("{rfid_setup_zpl}", rfidSetup, StringComparison.Ordinal);
+
+        var lines = rendered.Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None).ToList();
+        if (!lines.Any(line => line.TrimStart().StartsWith("^RS", StringComparison.Ordinal)))
+        {
+            var formatIndex = lines.FindIndex(line => line.TrimStart().StartsWith("^XA", StringComparison.Ordinal));
+            if (formatIndex < 0)
+            {
+                throw new ZebraBridgeException("RFID ZPL template must include a ^XA line.");
+            }
+            lines.Insert(formatIndex + 1, rfidSetup);
+        }
 
         return string.Join(eol, lines) + eol;
     }
