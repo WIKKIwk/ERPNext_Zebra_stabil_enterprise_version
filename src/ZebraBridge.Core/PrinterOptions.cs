@@ -11,6 +11,8 @@ public sealed class PrinterOptions
     public int LabelsToTryOnError { get; set; } = 1;
     public string ErrorHandlingAction { get; set; } = "N";
     public string ZplEol { get; set; } = "\n";
+    public string? RfidZplTemplate { get; set; }
+    public string? RfidZplTemplatePath { get; set; }
 
     public void ApplyEnvironment()
     {
@@ -23,6 +25,18 @@ public sealed class PrinterOptions
         LabelsToTryOnError = OverrideInt(LabelsToTryOnError, "ZEBRA_RFID_LABELS_TO_TRY_ON_ERROR");
         ErrorHandlingAction = Override(ErrorHandlingAction, "ZEBRA_RFID_ERROR_HANDLING_ACTION") ?? ErrorHandlingAction;
         ZplEol = Override(ZplEol, "ZEBRA_ZPL_EOL") ?? ZplEol;
+        RfidZplTemplate = Override(RfidZplTemplate, "ZEBRA_RFID_ZPL_TEMPLATE");
+        RfidZplTemplatePath = Override(RfidZplTemplatePath, "ZEBRA_RFID_ZPL_TEMPLATE_PATH");
+
+        if (!string.IsNullOrWhiteSpace(RfidZplTemplatePath))
+        {
+            var path = RfidZplTemplatePath.Trim();
+            if (!File.Exists(path))
+            {
+                throw new ZebraBridgeException($"RFID ZPL template file not found: {path}");
+            }
+            RfidZplTemplate = File.ReadAllText(path);
+        }
     }
 
     private static string? Override(string? current, string envKey)
