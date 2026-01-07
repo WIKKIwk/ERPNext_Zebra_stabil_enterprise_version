@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.IO.Ports;
 using System.Net.Http.Json;
@@ -157,8 +158,44 @@ public sealed class ScaleReaderService : BackgroundService
             return _options.Port.Trim();
         }
 
-        var ports = ScalePortEnumerator.ListPorts();
-        return ports.FirstOrDefault()?.Device ?? string.Empty;
+        var ports = ScalePortEnumerator.ListPorts()
+            .Select(port => port.Device)
+            .Where(port => !string.IsNullOrWhiteSpace(port))
+            .ToList();
+
+        if (ports.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        if (ports.Count == 1)
+        {
+            return ports[0];
+        }
+
+        var timeoutSec = Math.Clamp(_options.DetectTimeoutSec, 0.1, 2.0);
+        var timeout = TimeSpan.FromSeconds(timeoutSec);
+        var dataPorts = new List<string>();
+
+        foreach (var port in ports)
+        {
+            var probe = ProbePortForWeight(port, timeout);
+            if (probe.FoundWeight)
+            {
+                return port;
+            }
+            if (probe.HasData)
+            {
+                dataPorts.Add(port);
+            }
+        }
+
+        if (dataPorts.Count > 0)
+        {
+            return dataPorts[0];
+        }
+
+        return ports[0];
     }
 
     private SerialPort OpenPort(string portName)
@@ -230,6 +267,39 @@ public sealed class ScaleReaderService : BackgroundService
         }
 
         return Math.Abs(weight - lastWeight.Value) >= Math.Max(minChange, 0);
+    }
+
+    private (bool FoundWeight, bool HasData) ProbePortForWeight(string portName, TimeSpan timeout)
+    {
+        try
+        {
+            using var port = OpenPort(portName);
+            var buffer = new StringBuilder(256);
+            var stopwatch = Stopwatch.StartNew();
+            var hasData = false;
+
+            while (stopwatch.Elapsed < timeout)
+            {
+                var chunk = port.ReadExisting();
+                if (!string.IsNullOrWhiteSpace(chunk))
+                {
+                    hasData = true;
+                    AppendBuffer(buffer, chunk, 200);
+                    if (TryParseWeight(buffer.ToString(), _options.Unit) is not null)
+                    {
+                        return (true, true);
+                    }
+                }
+
+                Thread.Sleep(30);
+            }
+
+            return (false, hasData);
+        }
+        catch
+        {
+            return (false, false);
+        }
     }
 
     private async Task MaybePushAsync(
