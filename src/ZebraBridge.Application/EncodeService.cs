@@ -13,9 +13,41 @@ public sealed record EncodeRequest(
 
 public sealed record EncodeResult(bool Ok, string Message, string? EpcHex = null, string? Zpl = null);
 
+public enum EncodeBatchMode
+{
+    Manual,
+    Auto
+}
+
+public sealed record EncodeBatchItem(string Epc, int Copies = 1);
+
+public sealed record EncodeBatchRequest(
+    EncodeBatchMode Mode,
+    IReadOnlyList<EncodeBatchItem>? Items = null,
+    int AutoCount = 1,
+    bool PrintHumanReadable = false,
+    bool FeedAfterEncode = true
+);
+
+public sealed record EncodeBatchItemResult(string EpcHex, int Copies, bool Ok, string Message);
+
+public sealed record EncodeBatchResult(
+    bool Ok,
+    int TotalLabelsRequested,
+    int TotalLabelsSucceeded,
+    int UniqueEpcsSucceeded,
+    IReadOnlyList<EncodeBatchItemResult> Items
+);
+
+public sealed record TransceiveRequest(string Zpl, int ReadTimeoutMs = 2000, int MaxBytes = 32768);
+
+public sealed record TransceiveResult(bool Ok, string Message, string Output, int OutputBytes);
+
 public interface IEncodeService
 {
     Task<EncodeResult> EncodeAsync(EncodeRequest request, CancellationToken cancellationToken = default);
+    Task<EncodeBatchResult> EncodeBatchAsync(EncodeBatchRequest request, CancellationToken cancellationToken = default);
+    Task<TransceiveResult> TransceiveAsync(TransceiveRequest request, CancellationToken cancellationToken = default);
 }
 
 public sealed class EncodeService : IEncodeService
@@ -39,16 +71,8 @@ public sealed class EncodeService : IEncodeService
         var epcHex = Epc.Normalize(request.Epc);
         Epc.Validate(epcHex);
 
-        var copies = Math.Clamp(request.Copies, 1, 1000);
-        var options = new RfidWriteOptions(
-            PrintHumanReadable: request.PrintHumanReadable,
-            Copies: copies,
-            FeedAfterEncode: request.FeedAfterEncode,
-            LabelsToTryOnError: _printerOptions.LabelsToTryOnError,
-            ErrorHandlingAction: _printerOptions.ErrorHandlingAction
-        );
-
-        var zpl = ZplBuilder.BuildRfidWrite(epcHex, options, _printerOptions.ZplEol);
+        var options = BuildOptions(request.PrintHumanReadable, request.Copies, request.FeedAfterEncode);
+        var zpl = ZplBuilder.BuildEncodeCommandStream(epcHex, options, _printerOptions.ZplEol);
 
         if (request.DryRun)
         {
@@ -63,5 +87,155 @@ public sealed class EncodeService : IEncodeService
         }, cancellationToken);
 
         return new EncodeResult(true, "EPC written successfully.", epcHex);
+    }
+
+    public async Task<EncodeBatchResult> EncodeBatchAsync(
+        EncodeBatchRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var items = NormalizeBatchItems(request);
+        var totalRequested = items.Sum(item => item.Copies);
+        var results = new List<EncodeBatchItemResult>();
+        var succeeded = 0;
+
+        await _printCoordinator.RunLockedAsync(async () =>
+        {
+            var transport = _transportFactory.Create();
+            var reset = ZplBuilder.BuildResetPrinter(_printerOptions.ZplEol)
+                        + ZplBuilder.BuildResumePrinting(_printerOptions.ZplEol);
+
+            await transport.SendAsync(Encoding.ASCII.GetBytes(reset), cancellationToken);
+
+            for (var index = 0; index < items.Count; index++)
+            {
+                var item = items[index];
+                try
+                {
+                    var options = BuildOptions(request.PrintHumanReadable, item.Copies, request.FeedAfterEncode);
+                    var zpl = ZplBuilder.BuildEncodeCommandStream(item.Epc, options, _printerOptions.ZplEol);
+
+                    await transport.SendAsync(Encoding.ASCII.GetBytes(zpl), cancellationToken);
+
+                    succeeded += item.Copies;
+                    results.Add(new EncodeBatchItemResult(item.Epc, item.Copies, true, "Sent."));
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (ZebraBridgeException ex)
+                {
+                    results.Add(new EncodeBatchItemResult(item.Epc, item.Copies, false, ex.Message));
+                    AppendSkippedItems(items, index + 1, results);
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    results.Add(new EncodeBatchItemResult(item.Epc, item.Copies, false, ex.Message));
+                    AppendSkippedItems(items, index + 1, results);
+                    break;
+                }
+            }
+
+            return 0;
+        }, cancellationToken);
+
+        return new EncodeBatchResult(
+            succeeded == totalRequested,
+            totalRequested,
+            succeeded,
+            results.Count(item => item.Ok),
+            results
+        );
+    }
+
+    public async Task<TransceiveResult> TransceiveAsync(
+        TransceiveRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.Zpl))
+        {
+            throw new ZebraBridgeException("ZPL is required.");
+        }
+
+        var readTimeoutMs = Math.Clamp(request.ReadTimeoutMs, 50, 20000);
+        var maxBytes = Math.Clamp(request.MaxBytes, 1, 262144);
+
+        var zpl = request.Zpl;
+        if (!zpl.EndsWith(_printerOptions.ZplEol, StringComparison.Ordinal))
+        {
+            zpl += _printerOptions.ZplEol;
+        }
+
+        var output = await _printCoordinator.RunLockedAsync(async () =>
+        {
+            var transport = _transportFactory.Create();
+            if (transport is not IPrinterTransceiver transceiver)
+            {
+                throw new PrinterUnsupportedOperationException("Transceive is not supported by the current transport.");
+            }
+
+            return await transceiver.TransceiveAsync(
+                Encoding.ASCII.GetBytes(zpl),
+                readTimeoutMs,
+                maxBytes,
+                cancellationToken);
+        }, cancellationToken);
+
+        var text = Encoding.UTF8.GetString(output);
+        var message = output.Length > 0 ? "OK" : "No response from printer.";
+        return new TransceiveResult(true, message, text, output.Length);
+    }
+
+    private RfidWriteOptions BuildOptions(bool printHumanReadable, int copies, bool feedAfterEncode)
+    {
+        var normalizedCopies = Math.Clamp(copies, 1, 1000);
+        return new RfidWriteOptions(
+            PrintHumanReadable: printHumanReadable,
+            Copies: normalizedCopies,
+            FeedAfterEncode: feedAfterEncode,
+            LabelsToTryOnError: _printerOptions.LabelsToTryOnError,
+            ErrorHandlingAction: _printerOptions.ErrorHandlingAction
+        );
+    }
+
+    private static List<EncodeBatchItem> NormalizeBatchItems(EncodeBatchRequest request)
+    {
+        if (request.Mode == EncodeBatchMode.Auto)
+        {
+            throw new NotSupportedException("Auto batch mode is not implemented yet.");
+        }
+
+        if (request.Items is null || request.Items.Count == 0)
+        {
+            throw new ZebraBridgeException("Items are required for manual batch mode.");
+        }
+
+        var items = new List<EncodeBatchItem>(request.Items.Count);
+        foreach (var item in request.Items)
+        {
+            var epcHex = Epc.Normalize(item.Epc);
+            Epc.Validate(epcHex);
+            var copies = Math.Clamp(item.Copies, 1, 1000);
+            items.Add(new EncodeBatchItem(epcHex, copies));
+        }
+
+        return items;
+    }
+
+    private static void AppendSkippedItems(
+        List<EncodeBatchItem> items,
+        int startIndex,
+        List<EncodeBatchItemResult> results)
+    {
+        for (var index = startIndex; index < items.Count; index++)
+        {
+            var item = items[index];
+            results.Add(new EncodeBatchItemResult(
+                item.Epc,
+                item.Copies,
+                false,
+                "Skipped due to previous error."));
+        }
     }
 }
