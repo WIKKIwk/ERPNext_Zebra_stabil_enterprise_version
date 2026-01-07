@@ -23,7 +23,7 @@ It focuses on a stable encode pipeline first (no UI yet).
 
 Edit `src/ZebraBridge.Web/appsettings.json` or set environment overrides:
 
-- Printer: `ZEBRA_DEVICE_PATH`, `ZEBRA_PRINTER_NAME`, `ZEBRA_FEED_AFTER_ENCODE`
+- Printer: `ZEBRA_DEVICE_PATH`, `ZEBRA_PRINTER_NAME`, `ZEBRA_FEED_AFTER_ENCODE`, `ZEBRA_RFID_ZPL_TEMPLATE`, `ZEBRA_RFID_ZPL_TEMPLATE_PATH`
 - EPC generator: `ZEBRA_EPC_PREFIX_HEX`, `ZEBRA_EPC_STATE_PATH`, `ZEBRA_STATE_DIR`
 - ZPL line ending: `ZEBRA_ZPL_EOL` (default `\n`)
 - ERP agent: `ZEBRA_ERP_URL`, `ZEBRA_ERP_AUTH`, `ZEBRA_ERP_AGENT_ID`, `ZEBRA_ERP_DEVICE`
@@ -77,6 +77,13 @@ Transceive raw ZPL (only if transport supports reads):
 curl -X POST http://127.0.0.1:18000/api/v1/transceive \
   -H "Content-Type: application/json" \
   -d '{"zpl":"^XA^HH^XZ","readTimeoutMs":2000,"maxBytes":32768}'
+```
+
+Resume/clear printer:
+
+```
+curl -X POST http://127.0.0.1:18000/api/v1/printer/resume
+curl -X POST http://127.0.0.1:18000/api/v1/printer/reset
 ```
 
 ## Next Phase
