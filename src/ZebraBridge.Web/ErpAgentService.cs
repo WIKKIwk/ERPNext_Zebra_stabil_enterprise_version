@@ -42,19 +42,21 @@ public sealed class ErpAgentService : BackgroundService
             return;
         }
 
-        var baseUrl = NormalizeBaseUrl(_options.BaseUrl);
-        var authHeader = NormalizeAuth(_options.Auth);
-        if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(authHeader))
+        var configs = ErpAgentConfigLoader.Load(_options);
+        if (configs.Count == 0)
         {
-            _logger.LogWarning("ERP agent disabled (missing base URL or auth).");
+            _logger.LogWarning("ERP agent disabled (no valid targets).");
             return;
         }
 
-        var agentId = ResolveAgentId(_options.AgentId);
-        var device = ResolveDevice(_options.Device);
-        var heartbeatInterval = TimeSpan.FromMilliseconds(Clamp(_options.HeartbeatIntervalMs, 2000, 60000));
-        var pollInterval = TimeSpan.FromMilliseconds(Clamp(_options.PollIntervalMs, 150, 5000));
-        var pollMax = Clamp(_options.PollMax, 1, 25);
+        var tasks = configs.Select(config => RunAgentAsync(config, stoppingToken)).ToList();
+        await Task.WhenAll(tasks);
+    }
+
+    private async Task RunAgentAsync(ErpAgentRuntimeConfig config, CancellationToken stoppingToken)
+    {
+        var heartbeatInterval = TimeSpan.FromMilliseconds(config.HeartbeatIntervalMs);
+        var pollInterval = TimeSpan.FromMilliseconds(config.PollIntervalMs);
         var client = _clientFactory.CreateClient();
 
         var lastHeartbeat = DateTimeOffset.UtcNow - heartbeatInterval;
@@ -69,11 +71,11 @@ public sealed class ErpAgentService : BackgroundService
                 lastHeartbeat = now;
                 try
                 {
-                    await RegisterAsync(client, baseUrl, authHeader, agentId, device, stoppingToken);
+                    await RegisterAsync(client, config, stoppingToken);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "ERP register_agent failed.");
+                    _logger.LogWarning(ex, "ERP register_agent failed ({Name}).", config.Name);
                 }
             }
 
@@ -82,12 +84,12 @@ public sealed class ErpAgentService : BackgroundService
                 lastPoll = now;
                 try
                 {
-                    var commands = await PollAsync(client, baseUrl, authHeader, agentId, pollMax, stoppingToken);
-                    await ProcessCommandsAsync(client, baseUrl, authHeader, agentId, commands, stoppingToken);
+                    var commands = await PollAsync(client, config, stoppingToken);
+                    await ProcessCommandsAsync(client, config, commands, stoppingToken);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "ERP poll/reply failed.");
+                    _logger.LogWarning(ex, "ERP poll/reply failed ({Name}).", config.Name);
                 }
             }
 
@@ -111,21 +113,18 @@ public sealed class ErpAgentService : BackgroundService
 
     private async Task RegisterAsync(
         HttpClient client,
-        string baseUrl,
-        string authHeader,
-        string agentId,
-        string device,
+        ErpAgentRuntimeConfig config,
         CancellationToken token)
     {
         var payload = new Dictionary<string, object?>
         {
-            ["agent_id"] = agentId,
-            ["device"] = device,
+            ["agent_id"] = config.AgentId,
+            ["device"] = config.Device,
             ["ui_urls"] = BuildUiUrls(),
             ["ui_host"] = Environment.GetEnvironmentVariable("ZEBRA_WEB_HOST") ?? string.Empty,
             ["ui_port"] = ParseEnvInt("ZEBRA_WEB_PORT"),
             ["platform"] = ResolvePlatform(),
-            ["version"] = _options.Version,
+            ["version"] = config.Version,
             ["pid"] = Environment.ProcessId,
             ["kind"] = "zebra",
             ["capabilities"] = new Dictionary<string, bool>
@@ -140,32 +139,29 @@ public sealed class ErpAgentService : BackgroundService
 
         await PostFrappeAsync(
             client,
-            $"{baseUrl}{_options.RegisterEndpoint}",
+            $"{config.BaseUrl}{config.RegisterEndpoint}",
             payload,
-            BuildHeaders(authHeader, _options.Secret),
+            BuildHeaders(config),
             token);
     }
 
     private async Task<IReadOnlyList<ErpCommand>> PollAsync(
         HttpClient client,
-        string baseUrl,
-        string authHeader,
-        string agentId,
-        int pollMax,
+        ErpAgentRuntimeConfig config,
         CancellationToken token)
     {
         var payload = new Dictionary<string, object?>
         {
-            ["agent_id"] = agentId,
-            ["max"] = pollMax,
+            ["agent_id"] = config.AgentId,
+            ["max"] = config.PollMax,
             ["ts"] = NowMs()
         };
 
         var message = await PostFrappeAsync(
             client,
-            $"{baseUrl}{_options.PollEndpoint}",
+            $"{config.BaseUrl}{config.PollEndpoint}",
             payload,
-            BuildHeaders(authHeader, _options.Secret),
+            BuildHeaders(config),
             token);
 
         return ParseCommands(message);
@@ -173,9 +169,7 @@ public sealed class ErpAgentService : BackgroundService
 
     private async Task ProcessCommandsAsync(
         HttpClient client,
-        string baseUrl,
-        string authHeader,
-        string agentId,
+        ErpAgentRuntimeConfig config,
         IReadOnlyList<ErpCommand> commands,
         CancellationToken token)
     {
@@ -193,18 +187,18 @@ public sealed class ErpAgentService : BackgroundService
 
             if (IsExpired(command))
             {
-                await ReplyAsync(client, baseUrl, authHeader, agentId, command.RequestId, false, null, "Expired", token);
+                await ReplyAsync(client, config, command.RequestId, false, null, "Expired", token);
                 continue;
             }
 
             try
             {
                 var result = await ExecuteCommandAsync(command, token);
-                await ReplyAsync(client, baseUrl, authHeader, agentId, command.RequestId, true, result, string.Empty, token);
+                await ReplyAsync(client, config, command.RequestId, true, result, string.Empty, token);
             }
             catch (Exception ex)
             {
-                await ReplyAsync(client, baseUrl, authHeader, agentId, command.RequestId, false, null, ex.Message, token);
+                await ReplyAsync(client, config, command.RequestId, false, null, ex.Message, token);
             }
         }
     }
@@ -365,9 +359,7 @@ public sealed class ErpAgentService : BackgroundService
 
     private async Task ReplyAsync(
         HttpClient client,
-        string baseUrl,
-        string authHeader,
-        string agentId,
+        ErpAgentRuntimeConfig config,
         string requestId,
         bool ok,
         object? result,
@@ -376,7 +368,7 @@ public sealed class ErpAgentService : BackgroundService
     {
         var payload = new Dictionary<string, object?>
         {
-            ["agent_id"] = agentId,
+            ["agent_id"] = config.AgentId,
             ["request_id"] = requestId,
             ["ok"] = ok,
             ["result"] = ok ? result : null,
@@ -386,9 +378,9 @@ public sealed class ErpAgentService : BackgroundService
 
         await PostFrappeAsync(
             client,
-            $"{baseUrl}{_options.ReplyEndpoint}",
+            $"{config.BaseUrl}{config.ReplyEndpoint}",
             payload,
-            BuildHeaders(authHeader, _options.Secret),
+            BuildHeaders(config),
             token);
     }
 
@@ -467,57 +459,19 @@ public sealed class ErpAgentService : BackgroundService
         return list;
     }
 
-    private static Dictionary<string, string> BuildHeaders(string authHeader, string? secret)
+    private static Dictionary<string, string> BuildHeaders(ErpAgentRuntimeConfig config)
     {
         var headers = new Dictionary<string, string>();
-        if (!string.IsNullOrWhiteSpace(authHeader))
+        if (!string.IsNullOrWhiteSpace(config.AuthHeader))
         {
-            headers["Authorization"] = authHeader;
+            headers["Authorization"] = config.AuthHeader;
         }
-        if (!string.IsNullOrWhiteSpace(secret))
+        if (!string.IsNullOrWhiteSpace(config.Secret))
         {
-            headers["X-RFIDenter-Token"] = secret;
+            headers["X-RFIDenter-Token"] = config.Secret;
         }
 
         return headers;
-    }
-
-    private static string NormalizeBaseUrl(string? raw)
-    {
-        var value = (raw ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return string.Empty;
-        }
-        return value.EndsWith("/", StringComparison.Ordinal) ? value[..^1] : value;
-    }
-
-    private static string NormalizeAuth(string? raw)
-    {
-        var value = (raw ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return string.Empty;
-        }
-        return value.StartsWith("token ", StringComparison.OrdinalIgnoreCase) ? value : $"token {value}";
-    }
-
-    private static string ResolveAgentId(string? agentId)
-    {
-        if (!string.IsNullOrWhiteSpace(agentId))
-        {
-            return agentId.Trim();
-        }
-        return $"zebra-{Environment.MachineName}";
-    }
-
-    private static string ResolveDevice(string? device)
-    {
-        if (!string.IsNullOrWhiteSpace(device))
-        {
-            return device.Trim();
-        }
-        return Environment.MachineName;
     }
 
     private static string ResolvePlatform()
@@ -598,6 +552,7 @@ public sealed class ErpAgentService : BackgroundService
         }
         return value > max ? max : value;
     }
+
 
     private static int GetInt(JsonElement element, string name, int fallback, int min, int max)
     {
