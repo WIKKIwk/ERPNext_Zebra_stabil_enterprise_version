@@ -16,6 +16,7 @@ builder.Services.AddSingleton<PrintCoordinator>();
 builder.Services.AddSingleton<IPrinterTransportFactory, PrinterTransportFactory>();
 builder.Services.AddSingleton<IEpcGenerator, FileEpcGenerator>();
 builder.Services.AddSingleton<IEncodeService, EncodeService>();
+builder.Services.AddSingleton<IPrinterControlService, PrinterControlService>();
 builder.Services.AddHostedService<ScaleReaderService>();
 builder.Services.AddHostedService<ErpAgentService>();
 
@@ -31,7 +32,8 @@ app.MapGet("/api/v1/health", () => Results.Ok(new
 app.MapGet("/api/v1/config", (PrinterOptions printer) => Results.Ok(new
 {
     device_path = printer.DevicePath ?? string.Empty,
-    feed_after_encode = printer.FeedAfterEncode
+    feed_after_encode = printer.FeedAfterEncode,
+    zebra_template_enabled = !string.IsNullOrWhiteSpace(printer.RfidZplTemplate)
 }));
 
 app.MapGet("/api/v1/scale", (IScaleState scaleState) => Results.Ok(scaleState.Latest));
@@ -144,6 +146,40 @@ app.MapPost("/api/v1/transceive", async (TransceiveRequestDto request, IEncodeSe
     catch (Exception ex)
     {
         return Results.Problem(ex.Message);
+    }
+});
+
+app.MapPost("/api/v1/printer/resume", async (IPrinterControlService service) =>
+{
+    try
+    {
+        await service.ResumeAsync();
+        return Results.Ok(new { ok = true, message = "Printer resumed." });
+    }
+    catch (PrinterNotFoundException ex)
+    {
+        return Results.NotFound(new { ok = false, message = ex.Message });
+    }
+    catch (PrinterCommunicationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+});
+
+app.MapPost("/api/v1/printer/reset", async (IPrinterControlService service) =>
+{
+    try
+    {
+        await service.ResetAsync();
+        return Results.Ok(new { ok = true, message = "Printer reset." });
+    }
+    catch (PrinterNotFoundException ex)
+    {
+        return Results.NotFound(new { ok = false, message = ex.Message });
+    }
+    catch (PrinterCommunicationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
     }
 });
 
