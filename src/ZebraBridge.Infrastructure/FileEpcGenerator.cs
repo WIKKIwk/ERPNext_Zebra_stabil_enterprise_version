@@ -125,7 +125,7 @@ public sealed class FileEpcGenerator : IEpcGenerator
         {
             stream.Flush(true);
         }
-        catch (IOException)
+        catch (Exception)
         {
         }
     }
@@ -161,7 +161,7 @@ public sealed class FileEpcGenerator : IEpcGenerator
         {
             stream.Lock(0, long.MaxValue);
         }
-        catch (IOException)
+        catch (Exception)
         {
         }
     }
@@ -172,7 +172,7 @@ public sealed class FileEpcGenerator : IEpcGenerator
         {
             stream.Unlock(0, long.MaxValue);
         }
-        catch (IOException)
+        catch (Exception)
         {
         }
     }
