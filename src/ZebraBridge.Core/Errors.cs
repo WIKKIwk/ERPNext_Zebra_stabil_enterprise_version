@@ -32,3 +32,10 @@ public class PrinterCommunicationException : ZebraBridgeException
     {
     }
 }
+
+public class PrinterUnsupportedOperationException : ZebraBridgeException
+{
+    public PrinterUnsupportedOperationException(string message) : base(message)
+    {
+    }
+}
