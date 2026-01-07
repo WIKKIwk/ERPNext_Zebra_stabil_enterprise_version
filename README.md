@@ -27,6 +27,8 @@ Edit `src/ZebraBridge.Web/appsettings.json` or set environment overrides:
 - EPC generator: `ZEBRA_EPC_PREFIX_HEX`, `ZEBRA_EPC_STATE_PATH`, `ZEBRA_STATE_DIR`
 - ZPL line ending: `ZEBRA_ZPL_EOL` (default `\n`)
 - ERP agent: `ZEBRA_ERP_URL`, `ZEBRA_ERP_AUTH`, `ZEBRA_ERP_AGENT_ID`, `ZEBRA_ERP_DEVICE`
+- Multi-target ERP: `ZEBRA_ERP_TARGETS_JSON` or `ZEBRA_ERP_URL_LOCAL`/`ZEBRA_ERP_AUTH_LOCAL`, `ZEBRA_ERP_URL_SERVER`/`ZEBRA_ERP_AUTH_SERVER`
+- ERP config file: `ZEBRA_ERP_CONFIG_PATH` (defaults to `~/.local/state/zebra-bridge/erp-config.json`)
 
 The EPC generator stores state in:
 
