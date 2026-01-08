@@ -46,4 +46,16 @@ ensure_dotnet() {
 
 ensure_dotnet
 
-exec "${DOTNET_BIN}" run --project "${ROOT_DIR}/src/ZebraBridge.Cli/ZebraBridge.Cli.csproj" -- "$@"
+LOG_DIR="${LOG_DIR:-${ROOT_DIR}/logs}"
+BUILD_LOG="${BUILD_LOG:-${LOG_DIR}/cli-build.log}"
+mkdir -p "${LOG_DIR}"
+
+if [[ "${CLI_NO_BUILD:-0}" != "1" ]]; then
+  if ! "${DOTNET_BIN}" build "${ROOT_DIR}/src/ZebraBridge.Cli/ZebraBridge.Cli.csproj" \
+    > "${BUILD_LOG}" 2>&1; then
+    cat "${BUILD_LOG}" >&2
+    exit 1
+  fi
+fi
+
+exec "${DOTNET_BIN}" run --no-build --project "${ROOT_DIR}/src/ZebraBridge.Cli/ZebraBridge.Cli.csproj" -- "$@"
