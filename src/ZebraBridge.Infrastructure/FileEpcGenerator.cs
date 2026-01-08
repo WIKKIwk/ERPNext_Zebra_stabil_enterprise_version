@@ -79,7 +79,7 @@ public sealed class FileEpcGenerator : IEpcGenerator
         }
         catch (JsonException ex)
         {
-            throw new EpcGeneratorException("Invalid EPC generator state file.") from ex;
+            throw new EpcGeneratorException("Invalid EPC generator state file.", ex);
         }
 
         var prefixHex = NormalizePrefix(payload.PrefixHex ?? string.Empty);
