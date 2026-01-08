@@ -56,6 +56,7 @@ CLI (terminal):
 ./cli.sh encode-batch --items 3034AA:1,3034BB:2
 ./cli.sh transceive --zpl "^XA^HH^XZ"
 ./cli.sh printer resume
+./cli.sh setup --online --erp-url http://127.0.0.1:8000 --erp-token api_key:api_secret --device ZEBRA-01
 ```
 
 Terminal TUI (clean screen, no log spam):
@@ -65,6 +66,14 @@ Terminal TUI (clean screen, no log spam):
 ```
 
 This starts the web service in the background and opens a clean terminal dashboard.
+On startup it shows an ONLINE/OFFLINE selector. If you choose ONLINE it will ask for:
+
+- ERP URL (where to send data)
+- ERP token (api_key:api_secret or token ...)
+- Local device name (agent identity)
+
+The answers are saved to `~/.local/state/zebra-bridge/erp-config.json` (or `ZEBRA_ERP_CONFIG_PATH`)
+and the ERP UI (`rfidenter`) can control the device after that.
 
 ## Example Calls
 
