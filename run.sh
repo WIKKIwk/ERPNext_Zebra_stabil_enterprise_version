@@ -46,4 +46,27 @@ ensure_dotnet() {
 
 ensure_dotnet
 
+if [[ "${1:-}" == "--tui" ]]; then
+  shift || true
+  LOG_DIR="${LOG_DIR:-${ROOT_DIR}/logs}"
+  LOG_FILE="${LOG_FILE:-${LOG_DIR}/zebra-web.log}"
+  mkdir -p "${LOG_DIR}"
+
+  "${DOTNET_BIN}" run --project "${ROOT_DIR}/src/ZebraBridge.Web/ZebraBridge.Web.csproj" \
+    > "${LOG_FILE}" 2>&1 &
+
+  SERVER_PID=$!
+  echo "ZebraBridge web started (pid: ${SERVER_PID}). Logs: ${LOG_FILE}"
+
+  cleanup() {
+    if kill -0 "${SERVER_PID}" >/dev/null 2>&1; then
+      kill "${SERVER_PID}" >/dev/null 2>&1 || true
+    fi
+  }
+
+  trap cleanup EXIT INT TERM
+  "${ROOT_DIR}/cli.sh" tui "$@"
+  exit 0
+fi
+
 exec "${DOTNET_BIN}" run --project "${ROOT_DIR}/src/ZebraBridge.Web/ZebraBridge.Web.csproj"
