@@ -242,7 +242,9 @@ public sealed class ErpAgentService : BackgroundService
                 ["zebra_feed_after_encode"] = _printerOptions.FeedAfterEncode,
                 ["zebra_rfid_labels_to_try_on_error"] = _printerOptions.LabelsToTryOnError,
                 ["zebra_rfid_error_handling_action"] = _printerOptions.ErrorHandlingAction,
-                ["zebra_template_enabled"] = !string.IsNullOrWhiteSpace(_printerOptions.RfidZplTemplate)
+                ["zebra_template_enabled"] = !string.IsNullOrWhiteSpace(_printerOptions.RfidZplTemplate),
+                ["zebra_transport"] = _printerOptions.Transport,
+                ["zebra_transceive_supported"] = string.Equals(_printerOptions.Transport, "usb", StringComparison.OrdinalIgnoreCase)
             };
         }
 
