@@ -43,6 +43,20 @@ app.MapGet("/api/v1/config", (PrinterOptions printer) => Results.Ok(new
     transport = printer.Transport
 }));
 
+app.MapGet("/api/v1/printer/status", (PrinterOptions printer) =>
+{
+    var status = PrinterPresenceProbe.GetStatus(printer);
+    return Results.Ok(new
+    {
+        connected = status.Connected,
+        transport = status.Transport,
+        device_path = status.DevicePath ?? string.Empty,
+        vendor_id = $"0x{status.VendorId:X4}",
+        product_id = $"0x{status.ProductId:X4}",
+        message = status.Message
+    });
+});
+
 app.MapGet("/api/v1/scale", (IScaleState scaleState) => Results.Ok(scaleState.Latest));
 
 app.MapGet("/api/v1/scale/ports", () => Results.Ok(ScalePortEnumerator.ListPorts()));
