@@ -70,3 +70,7 @@ public sealed record TransceiveRequestDto(string Zpl, int ReadTimeoutMs = 2000, 
 }
 
 public sealed record TransceiveResponseDto(bool Ok, string Message, string Output, int OutputBytes);
+
+public sealed record PrintJobRequestDto(string Zpl, int Copies = 1);
+
+public sealed record PrintJobResponseDto(bool Ok, string Message);
