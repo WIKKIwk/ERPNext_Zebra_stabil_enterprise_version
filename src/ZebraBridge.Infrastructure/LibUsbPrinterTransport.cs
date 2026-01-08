@@ -28,9 +28,9 @@ public sealed class LibUsbPrinterTransport : IPrinterTransceiver
         cancellationToken.ThrowIfCancellationRequested();
         lock (_sync)
         {
-            UseDevice((writer, _) =>
+            UseDevice((writer, reader) =>
             {
-                var error = writer.Write(data, _timeoutMs, out _);
+                var error = writer.Write(data, _timeoutMs, out var _);
                 EnsureUsbOk(error, "USB write failed.");
             }, requireReader: false);
         }
@@ -63,7 +63,7 @@ public sealed class LibUsbPrinterTransport : IPrinterTransceiver
                     throw new PrinterUnsupportedOperationException("No USB bulk IN endpoint available.");
                 }
 
-                var writeError = writer.Write(data, _timeoutMs, out _);
+                var writeError = writer.Write(data, _timeoutMs, out var _);
                 EnsureUsbOk(writeError, "USB write failed.");
 
                 var buffer = new byte[bufferSize];
@@ -163,7 +163,7 @@ public sealed class LibUsbPrinterTransport : IPrinterTransceiver
         {
             try
             {
-                return device.OpenEndpointWriter(endpoint, EndpointType.Bulk);
+                return device.OpenEndpointWriter(endpoint);
             }
             catch
             {
@@ -187,7 +187,7 @@ public sealed class LibUsbPrinterTransport : IPrinterTransceiver
         {
             try
             {
-                return device.OpenEndpointReader(endpoint, EndpointType.Bulk);
+                return device.OpenEndpointReader(endpoint);
             }
             catch
             {
