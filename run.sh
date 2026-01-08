@@ -187,11 +187,8 @@ if [[ "${1:-}" == "--tui" ]]; then
     shift || true
   done
 
-  ERP_CONFIG_PATH="$(resolve_erp_config_path)"
   if [[ "${ZEBRA_TUI_SETUP:-1}" != "0" ]]; then
-    if [[ "${FORCE_SETUP}" == "1" || ! -f "${ERP_CONFIG_PATH}" ]]; then
-      "${ROOT_DIR}/cli.sh" setup "${SETUP_ARGS[@]}"
-    fi
+    "${ROOT_DIR}/cli.sh" setup "${SETUP_ARGS[@]}"
   fi
 
   "${DOTNET_BIN}" run --project "${ROOT_DIR}/src/ZebraBridge.Web/ZebraBridge.Web.csproj" \
