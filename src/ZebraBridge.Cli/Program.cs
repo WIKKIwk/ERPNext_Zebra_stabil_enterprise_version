@@ -22,6 +22,7 @@ try
         "encode-batch" => await HandleEncodeBatchAsync(context, parser),
         "transceive" => await HandleTransceiveAsync(context, parser),
         "printer" => await HandlePrinterAsync(context, parser),
+        "tui" => await HandleTuiAsync(parser),
         "config" => HandleConfig(context),
         "version" => HandleVersion(),
         _ => HandleUnknown(command)
@@ -190,6 +191,121 @@ static int HandleVersion()
     return 0;
 }
 
+static async Task<int> HandleTuiAsync(ArgParser parser)
+{
+    var baseUrl = parser.GetString("url");
+    if (string.IsNullOrWhiteSpace(baseUrl))
+    {
+        var host = Environment.GetEnvironmentVariable("ZEBRA_WEB_HOST") ?? "127.0.0.1";
+        var port = Environment.GetEnvironmentVariable("ZEBRA_WEB_PORT") ?? "18000";
+        baseUrl = $"http://{host}:{port}";
+    }
+    baseUrl = baseUrl.TrimEnd('/');
+
+    using var client = new HttpClient { BaseAddress = new Uri(baseUrl) };
+    Console.CursorVisible = false;
+
+    var exit = false;
+    Console.CancelKeyPress += (_, args) =>
+    {
+        args.Cancel = true;
+        exit = true;
+    };
+
+    while (!exit)
+    {
+        if (Console.KeyAvailable)
+        {
+            var key = Console.ReadKey(intercept: true);
+            if (key.Key is ConsoleKey.Q or ConsoleKey.Escape)
+            {
+                break;
+            }
+        }
+
+        var now = DateTimeOffset.Now;
+        string healthLine = "Health: unknown";
+        string configLine = "Config: unavailable";
+        string scaleLine = "Scale: unavailable";
+
+        try
+        {
+            var health = await GetJsonAsync(client, "/api/v1/health");
+            var service = health.TryGetProperty("service", out var svc) ? svc.GetString() : "service";
+            var ok = health.TryGetProperty("ok", out var okValue) && okValue.GetBoolean();
+            healthLine = $"Health: {(ok ? "OK" : "FAIL")} ({service})";
+        }
+        catch (Exception ex)
+        {
+            healthLine = $"Health: ERROR ({ex.Message})";
+        }
+
+        try
+        {
+            var config = await GetJsonAsync(client, "/api/v1/config");
+            var device = config.TryGetProperty("device_path", out var dev) ? dev.GetString() : "";
+            var transport = config.TryGetProperty("transport", out var tr) ? tr.GetString() : "";
+            var template = config.TryGetProperty("zebra_template_enabled", out var te) && te.GetBoolean()
+                ? "template=on"
+                : "template=off";
+            configLine = $"Config: device={device} transport={transport} {template}";
+        }
+        catch (Exception ex)
+        {
+            configLine = $"Config: ERROR ({ex.Message})";
+        }
+
+        try
+        {
+            var scale = await GetJsonAsync(client, "/api/v1/scale");
+            if (scale.TryGetProperty("weight", out var weightElement) && weightElement.ValueKind == JsonValueKind.Number)
+            {
+                var weight = weightElement.GetDouble();
+                var unit = scale.TryGetProperty("unit", out var unitElement) ? unitElement.GetString() : "kg";
+                var stable = scale.TryGetProperty("stable", out var stableElement) && stableElement.ValueKind != JsonValueKind.Null
+                    ? (stableElement.GetBoolean() ? "stable" : "unstable")
+                    : "unverified";
+                var port = scale.TryGetProperty("port", out var portElement) ? portElement.GetString() : "";
+                scaleLine = $"Scale: {weight:0.000} {unit} ({stable}) {port}";
+            }
+            else
+            {
+                var error = scale.TryGetProperty("error", out var err) ? err.GetString() : "no data";
+                scaleLine = $"Scale: {error}";
+            }
+        }
+        catch (Exception ex)
+        {
+            scaleLine = $"Scale: ERROR ({ex.Message})";
+        }
+
+        Console.Clear();
+        Console.WriteLine("ZebraBridge TUI");
+        Console.WriteLine("Press Q or Esc to quit.");
+        Console.WriteLine(new string('-', 48));
+        Console.WriteLine($"Time:   {now:yyyy-MM-dd HH:mm:ss}");
+        Console.WriteLine($"Base:   {baseUrl}");
+        Console.WriteLine(healthLine);
+        Console.WriteLine(configLine);
+        Console.WriteLine(scaleLine);
+
+        await Task.Delay(500);
+    }
+
+    Console.CursorVisible = true;
+    return 0;
+}
+
+static async Task<JsonElement> GetJsonAsync(HttpClient client, string path)
+{
+    using var response = await client.GetAsync(path);
+    var payload = await response.Content.ReadAsStringAsync();
+    response.EnsureSuccessStatusCode();
+
+    using var doc = JsonDocument.Parse(payload);
+    return doc.RootElement.Clone();
+}
+
 static int HandleUnknown(string command)
 {
     Console.Error.WriteLine($"Unknown command: {command}");
@@ -238,6 +354,7 @@ static void PrintUsage()
     Console.WriteLine("  zebra-cli transceive --zpl <ZPL> [--timeout ms] [--max bytes]");
     Console.WriteLine("  zebra-cli transceive --zpl-file path/to/file.zpl [--timeout ms] [--max bytes]");
     Console.WriteLine("  zebra-cli printer resume|reset");
+    Console.WriteLine("  zebra-cli tui [--url http://127.0.0.1:18000]");
     Console.WriteLine("  zebra-cli config");
     Console.WriteLine("  zebra-cli version");
     Console.WriteLine();
