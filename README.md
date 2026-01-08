@@ -49,6 +49,15 @@ The script downloads .NET 8 locally into `.dotnet/` if `dotnet` is not already i
 
 Then open the UI at `http://127.0.0.1:18000`.
 
+CLI (terminal):
+
+```
+./cli.sh encode --epc 3034257BF7194E4000000001 --copies 2
+./cli.sh encode-batch --items 3034AA:1,3034BB:2
+./cli.sh transceive --zpl "^XA^HH^XZ"
+./cli.sh printer resume
+```
+
 ## Example Calls
 
 Encode a single EPC:
