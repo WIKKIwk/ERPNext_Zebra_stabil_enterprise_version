@@ -59,44 +59,57 @@ public sealed class ErpAgentService : BackgroundService
         var pollInterval = TimeSpan.FromMilliseconds(config.PollIntervalMs);
         var client = _clientFactory.CreateClient();
 
-        var lastHeartbeat = DateTimeOffset.UtcNow - heartbeatInterval;
-        var lastPoll = DateTimeOffset.UtcNow - pollInterval;
+        var nextHeartbeatAt = DateTimeOffset.UtcNow;
+        var nextPollAt = DateTimeOffset.UtcNow;
+        var pollFailCount = 0;
+        var lastWarnAt = DateTimeOffset.MinValue;
 
         while (!stoppingToken.IsCancellationRequested)
         {
             var now = DateTimeOffset.UtcNow;
 
-            if (now - lastHeartbeat >= heartbeatInterval)
+            if (now >= nextHeartbeatAt)
             {
-                lastHeartbeat = now;
                 try
                 {
                     await RegisterAsync(client, config, stoppingToken);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "ERP register_agent failed ({Name}).", config.Name);
+                    if (now - lastWarnAt > TimeSpan.FromSeconds(5))
+                    {
+                        lastWarnAt = now;
+                        _logger.LogWarning("ERP register_agent failed ({Name}): {Message}", config.Name, ex.Message);
+                    }
                 }
+                nextHeartbeatAt = now + heartbeatInterval;
             }
 
-            if (now - lastPoll >= pollInterval)
+            if (now >= nextPollAt)
             {
-                lastPoll = now;
                 try
                 {
                     var commands = await PollAsync(client, config, stoppingToken);
                     await ProcessCommandsAsync(client, config, commands, stoppingToken);
+                    pollFailCount = 0;
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "ERP poll/reply failed ({Name}).", config.Name);
+                    pollFailCount = Math.Min(pollFailCount + 1, 10);
+                    if (now - lastWarnAt > TimeSpan.FromSeconds(5))
+                    {
+                        lastWarnAt = now;
+                        _logger.LogWarning("ERP poll/reply failed ({Name}): {Message}", config.Name, ex.Message);
+                    }
                 }
+                var backoff = pollFailCount == 0
+                    ? pollInterval
+                    : TimeSpan.FromMilliseconds(Math.Min(30000, pollInterval.TotalMilliseconds * Math.Pow(2, pollFailCount)));
+                nextPollAt = now + backoff;
             }
 
-            var nextHeartbeat = lastHeartbeat + heartbeatInterval;
-            var nextPoll = lastPoll + pollInterval;
-            var nextTick = nextHeartbeat < nextPoll ? nextHeartbeat : nextPoll;
-            var delay = nextTick - DateTimeOffset.UtcNow;
+            var nextTick = nextHeartbeatAt < nextPollAt ? nextHeartbeatAt : nextPollAt;
+            var delay = nextTick - now;
             if (delay > TimeSpan.Zero)
             {
                 try
