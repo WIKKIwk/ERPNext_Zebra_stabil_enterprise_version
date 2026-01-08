@@ -346,6 +346,7 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
         var now = DateTimeOffset.Now;
         string healthLine = "Health: unknown";
         string configLine = "Config: unavailable";
+        string printerLine = "Printer: checking";
         string scaleLine = "Scale: unavailable";
 
         try
@@ -373,6 +374,31 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
         catch (Exception ex)
         {
             configLine = $"Config: ERROR ({ex.Message})";
+        }
+
+        try
+        {
+            var status = await GetJsonAsync(client, "/api/v1/printer/status");
+            var connected = status.TryGetProperty("connected", out var conn) && conn.GetBoolean();
+            var transport = status.TryGetProperty("transport", out var tr) ? tr.GetString() : "";
+            var device = status.TryGetProperty("device_path", out var dev) ? dev.GetString() : "";
+            var vendor = status.TryGetProperty("vendor_id", out var vid) ? vid.GetString() : "";
+            var product = status.TryGetProperty("product_id", out var pid) ? pid.GetString() : "";
+            var message = status.TryGetProperty("message", out var msg) ? msg.GetString() : "";
+
+            var state = connected ? "CONNECTED" : "SEARCHING";
+            var detail = transport == "usb"
+                ? $"{transport} {vendor}:{product}"
+                : $"{transport} {device}";
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                detail = $"{detail} - {message}";
+            }
+            printerLine = $"Printer: {state} ({detail.Trim()})";
+        }
+        catch (Exception ex)
+        {
+            printerLine = $"Printer: ERROR ({ex.Message})";
         }
 
         try
@@ -410,6 +436,7 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
         Console.WriteLine("----------------------------------------------");
         Console.WriteLine(healthLine);
         Console.WriteLine(configLine);
+        Console.WriteLine(printerLine);
         Console.WriteLine(scaleLine);
         Console.WriteLine("----------------------------------------------");
         Console.WriteLine("Keys   : [Q] Quit  [S] Setup");
