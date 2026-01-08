@@ -5,6 +5,9 @@ using ZebraBridge.Web;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
+builder.Logging.AddFilter("Microsoft.Extensions.Http", LogLevel.Warning);
+
 builder.Services.AddSingleton(BuildPrinterOptions(builder.Configuration));
 builder.Services.AddSingleton(BuildScaleOptions(builder.Configuration));
 builder.Services.AddSingleton(BuildErpAgentOptions(builder.Configuration));
