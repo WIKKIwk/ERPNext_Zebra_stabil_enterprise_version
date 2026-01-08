@@ -28,10 +28,11 @@ public sealed class LibUsbPrinterTransport : IPrinterTransceiver
         cancellationToken.ThrowIfCancellationRequested();
         lock (_sync)
         {
-            UseDevice((writer, reader) =>
+            UseDevice<int>((writer, reader) =>
             {
                 var error = writer.Write(data, _timeoutMs, out var _);
                 EnsureUsbOk(error, "USB write failed.");
+                return 0;
             }, requireReader: false);
         }
 
