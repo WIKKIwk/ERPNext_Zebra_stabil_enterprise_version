@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using ZebraBridge.Application;
 using ZebraBridge.Core;
@@ -23,6 +24,7 @@ try
         "transceive" => await HandleTransceiveAsync(context, parser),
         "printer" => await HandlePrinterAsync(context, parser),
         "tui" => await HandleTuiAsync(parser),
+        "setup" => HandleSetup(parser),
         "config" => HandleConfig(context),
         "version" => HandleVersion(),
         _ => HandleUnknown(command)
@@ -191,9 +193,108 @@ static int HandleVersion()
     return 0;
 }
 
+static int HandleSetup(ArgParser parser)
+{
+    var mode = parser.GetString("mode")?.Trim().ToLowerInvariant();
+    if (parser.HasFlag("offline"))
+    {
+        mode = "offline";
+    }
+    else if (parser.HasFlag("online"))
+    {
+        mode = "online";
+    }
+
+    if (string.IsNullOrWhiteSpace(mode))
+    {
+        if (Console.IsInputRedirected)
+        {
+            Console.Error.WriteLine("Error: --online or --offline is required when input is redirected.");
+            return 1;
+        }
+        return RunSetupWizard(allowSkip: false) ? 0 : 1;
+    }
+
+    if (mode == "offline")
+    {
+        WriteErpConfig(enabled: false, baseUrl: string.Empty, auth: string.Empty, device: string.Empty);
+        Console.WriteLine("ERP mode set to OFFLINE.");
+        return 0;
+    }
+
+    if (mode != "online")
+    {
+        Console.Error.WriteLine("Invalid mode. Use --online or --offline.");
+        return 1;
+    }
+
+    var existing = TryLoadErpProfile();
+    var erpUrl = parser.GetString("erp-url");
+    if (string.IsNullOrWhiteSpace(erpUrl))
+    {
+        if (!Console.IsInputRedirected)
+        {
+            erpUrl = PromptWithDefault("ERP URL", existing?.BaseUrl);
+        }
+        else
+        {
+            erpUrl = existing?.BaseUrl;
+        }
+    }
+    if (string.IsNullOrWhiteSpace(erpUrl))
+    {
+        Console.Error.WriteLine("ERP URL is required for online mode.");
+        return 1;
+    }
+
+    var token = parser.GetString("erp-token");
+    if (string.IsNullOrWhiteSpace(token))
+    {
+        if (!Console.IsInputRedirected)
+        {
+            var label = string.IsNullOrWhiteSpace(existing?.Auth)
+                ? "ERP Token (api_key:api_secret or 'token ...')"
+                : "ERP Token (leave empty to keep current)";
+            token = PromptSecret($"{label}: ");
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                token = existing?.Auth;
+            }
+        }
+        else
+        {
+            token = existing?.Auth;
+        }
+    }
+    if (string.IsNullOrWhiteSpace(token))
+    {
+        Console.Error.WriteLine("ERP Token is required for online mode.");
+        return 1;
+    }
+
+    var deviceDefault = string.IsNullOrWhiteSpace(existing?.Device) ? Environment.MachineName : existing!.Device;
+    var device = parser.GetString("device");
+    if (string.IsNullOrWhiteSpace(device))
+    {
+        if (!Console.IsInputRedirected)
+        {
+            device = PromptWithDefault("Local device name", deviceDefault);
+        }
+        else
+        {
+            device = deviceDefault;
+        }
+    }
+
+    WriteErpConfig(enabled: true, baseUrl: erpUrl, auth: token, device: device ?? deviceDefault);
+    Console.WriteLine($"ERP mode set to ONLINE. Target: {erpUrl}");
+    return 0;
+}
+
 static async Task<int> HandleTuiAsync(ArgParser parser)
 {
     var baseUrl = parser.GetString("url");
+    var forceSetup = parser.HasFlag("setup");
     if (string.IsNullOrWhiteSpace(baseUrl))
     {
         var host = Environment.GetEnvironmentVariable("ZEBRA_WEB_HOST") ?? "127.0.0.1";
@@ -201,6 +302,14 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
         baseUrl = $"http://{host}:{port}";
     }
     baseUrl = baseUrl.TrimEnd('/');
+
+    if ((forceSetup || !HasErpConfig()) && !Console.IsInputRedirected)
+    {
+        if (!RunSetupWizard(allowSkip: !forceSetup && HasErpConfig()))
+        {
+            return 1;
+        }
+    }
 
     using var client = new HttpClient { BaseAddress = new Uri(baseUrl) };
     Console.CursorVisible = false;
@@ -214,12 +323,23 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
 
     while (!exit)
     {
-        if (Console.KeyAvailable)
+        if (!Console.IsInputRedirected && Console.KeyAvailable)
         {
             var key = Console.ReadKey(intercept: true);
             if (key.Key is ConsoleKey.Q or ConsoleKey.Escape)
             {
                 break;
+            }
+            if (key.Key is ConsoleKey.S)
+            {
+                Console.CursorVisible = true;
+                var updated = RunSetupWizard(allowSkip: true);
+                Console.CursorVisible = false;
+                if (!updated)
+                {
+                    break;
+                }
+                continue;
             }
         }
 
@@ -279,15 +399,20 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
             scaleLine = $"Scale: ERROR ({ex.Message})";
         }
 
+        var modeLine = GetModeLine();
+
         Console.Clear();
-        Console.WriteLine("ZebraBridge TUI");
-        Console.WriteLine("Press Q or Esc to quit.");
-        Console.WriteLine(new string('-', 48));
-        Console.WriteLine($"Time:   {now:yyyy-MM-dd HH:mm:ss}");
-        Console.WriteLine($"Base:   {baseUrl}");
+        Console.WriteLine("ZebraBridge Terminal UI");
+        Console.WriteLine("==============================================");
+        Console.WriteLine($"Time   : {now:yyyy-MM-dd HH:mm:ss}");
+        Console.WriteLine($"Base   : {baseUrl}");
+        Console.WriteLine($"{modeLine}");
+        Console.WriteLine("----------------------------------------------");
         Console.WriteLine(healthLine);
         Console.WriteLine(configLine);
         Console.WriteLine(scaleLine);
+        Console.WriteLine("----------------------------------------------");
+        Console.WriteLine("Keys   : [Q] Quit  [S] Setup");
 
         await Task.Delay(500);
     }
@@ -304,6 +429,24 @@ static async Task<JsonElement> GetJsonAsync(HttpClient client, string path)
 
     using var doc = JsonDocument.Parse(payload);
     return doc.RootElement.Clone();
+}
+
+static string GetModeLine()
+{
+    var profile = TryLoadErpProfile();
+    if (profile is null)
+    {
+        return "Mode: OFFLINE (no ERP config)";
+    }
+
+    if (!profile.RpcEnabled || !profile.Enabled)
+    {
+        return "Mode: OFFLINE (ERP disabled)";
+    }
+
+    var baseUrl = string.IsNullOrWhiteSpace(profile.BaseUrl) ? "missing url" : profile.BaseUrl;
+    var device = string.IsNullOrWhiteSpace(profile.Device) ? string.Empty : $" device={profile.Device}";
+    return $"Mode: ONLINE ({baseUrl}){device}";
 }
 
 static int HandleUnknown(string command)
@@ -354,7 +497,8 @@ static void PrintUsage()
     Console.WriteLine("  zebra-cli transceive --zpl <ZPL> [--timeout ms] [--max bytes]");
     Console.WriteLine("  zebra-cli transceive --zpl-file path/to/file.zpl [--timeout ms] [--max bytes]");
     Console.WriteLine("  zebra-cli printer resume|reset");
-    Console.WriteLine("  zebra-cli tui [--url http://127.0.0.1:18000]");
+    Console.WriteLine("  zebra-cli tui [--url http://127.0.0.1:18000] [--setup]");
+    Console.WriteLine("  zebra-cli setup [--online|--offline] [--erp-url URL] [--erp-token TOKEN] [--device NAME]");
     Console.WriteLine("  zebra-cli config");
     Console.WriteLine("  zebra-cli version");
     Console.WriteLine();
@@ -370,10 +514,312 @@ static string ToJson(object value)
     return JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true });
 }
 
+static bool RunSetupWizard(bool allowSkip)
+{
+    if (Console.IsInputRedirected)
+    {
+        Console.Error.WriteLine("Setup requires an interactive terminal.");
+        return false;
+    }
+
+    var existing = TryLoadErpProfile();
+    var currentMode = existing is null || !existing.RpcEnabled || !existing.Enabled ? "OFFLINE" : "ONLINE";
+
+    Console.Clear();
+    Console.WriteLine("ZebraBridge Setup");
+    Console.WriteLine("=================");
+    Console.WriteLine($"Current mode: {currentMode}");
+    if (existing is not null && !string.IsNullOrWhiteSpace(existing.BaseUrl))
+    {
+        Console.WriteLine($"Current ERP : {existing.BaseUrl}");
+    }
+    Console.WriteLine();
+    Console.WriteLine("Choose mode:");
+    Console.WriteLine("  [1] Online (ERP control)");
+    Console.WriteLine("  [2] Offline (local only)");
+    if (allowSkip)
+    {
+        Console.WriteLine("  [Enter] Keep current");
+    }
+    Console.WriteLine("  [Q] Quit");
+    Console.WriteLine();
+    Console.Write("Select: ");
+
+    while (true)
+    {
+        var key = Console.ReadKey(intercept: true);
+        if (allowSkip && key.Key == ConsoleKey.Enter)
+        {
+            Console.WriteLine();
+            return true;
+        }
+        if (key.Key is ConsoleKey.Q or ConsoleKey.Escape)
+        {
+            Console.WriteLine();
+            return false;
+        }
+        if (key.KeyChar == '1')
+        {
+            Console.WriteLine("Online");
+            break;
+        }
+        if (key.KeyChar == '2')
+        {
+            Console.WriteLine("Offline");
+            WriteErpConfig(enabled: false, baseUrl: string.Empty, auth: string.Empty, device: string.Empty);
+            Console.WriteLine("ERP mode set to OFFLINE.");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return true;
+        }
+    }
+
+    var erpUrl = PromptWithDefault("ERP URL", existing?.BaseUrl);
+    while (string.IsNullOrWhiteSpace(erpUrl))
+    {
+        Console.WriteLine("ERP URL is required for online mode.");
+        erpUrl = Prompt("ERP URL: ");
+    }
+
+    var tokenLabel = string.IsNullOrWhiteSpace(existing?.Auth)
+        ? "ERP Token (api_key:api_secret or 'token ...')"
+        : "ERP Token (leave empty to keep current)";
+    var token = PromptSecret($"{tokenLabel}: ");
+    if (string.IsNullOrWhiteSpace(token))
+    {
+        token = existing?.Auth ?? string.Empty;
+    }
+    while (string.IsNullOrWhiteSpace(token))
+    {
+        Console.WriteLine("ERP Token is required for online mode.");
+        token = PromptSecret("ERP Token: ");
+    }
+
+    var deviceDefault = string.IsNullOrWhiteSpace(existing?.Device) ? Environment.MachineName : existing!.Device;
+    var device = PromptWithDefault("Local device name", deviceDefault);
+    if (string.IsNullOrWhiteSpace(device))
+    {
+        device = deviceDefault;
+    }
+
+    WriteErpConfig(enabled: true, baseUrl: erpUrl, auth: token, device: device);
+    Console.WriteLine($"ERP mode set to ONLINE. Target: {erpUrl}");
+    Console.WriteLine("Press Enter to continue...");
+    Console.ReadLine();
+    return true;
+}
+
+static string PromptWithDefault(string label, string? fallback)
+{
+    var value = Prompt(string.IsNullOrWhiteSpace(fallback) ? $"{label}: " : $"{label} [{fallback}]: ");
+    return string.IsNullOrWhiteSpace(value) ? (fallback ?? string.Empty) : value;
+}
+
+static string Prompt(string message)
+{
+    Console.Write(message);
+    return (Console.ReadLine() ?? string.Empty).Trim();
+}
+
+static string PromptSecret(string message)
+{
+    if (Console.IsInputRedirected)
+    {
+        return string.Empty;
+    }
+
+    Console.Write(message);
+    var buffer = new StringBuilder();
+    while (true)
+    {
+        var key = Console.ReadKey(intercept: true);
+        if (key.Key == ConsoleKey.Enter)
+        {
+            break;
+        }
+        if (key.Key == ConsoleKey.Backspace)
+        {
+            if (buffer.Length == 0)
+            {
+                continue;
+            }
+            buffer.Length -= 1;
+            Console.Write("\b \b");
+            continue;
+        }
+        if (!char.IsControl(key.KeyChar))
+        {
+            buffer.Append(key.KeyChar);
+            Console.Write("*");
+        }
+    }
+    Console.WriteLine();
+    return buffer.ToString();
+}
+
+static void WriteErpConfig(bool enabled, string baseUrl, string auth, string device)
+{
+    var path = StatePaths.GetErpConfigPath();
+    var directory = Path.GetDirectoryName(path);
+    if (!string.IsNullOrWhiteSpace(directory))
+    {
+        Directory.CreateDirectory(directory);
+    }
+
+    var profile = new Dictionary<string, object?>
+    {
+        ["rpcEnabled"] = enabled,
+        ["enabled"] = enabled,
+        ["overrideEnv"] = true,
+        ["baseUrl"] = baseUrl?.Trim() ?? string.Empty,
+        ["auth"] = NormalizeAuth(auth),
+        ["device"] = device?.Trim() ?? string.Empty
+    };
+
+    var payload = new Dictionary<string, object?>
+    {
+        ["erp"] = new Dictionary<string, object?>
+        {
+            ["activeProfile"] = "local",
+            ["profiles"] = new Dictionary<string, object?> { ["local"] = profile }
+        }
+    };
+
+    var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+    File.WriteAllText(path, json);
+    Console.WriteLine($"ERP config saved to: {path}");
+}
+
+static string NormalizeAuth(string? raw)
+{
+    var value = (raw ?? string.Empty).Trim();
+    if (string.IsNullOrWhiteSpace(value))
+    {
+        return string.Empty;
+    }
+    return value.StartsWith("token ", StringComparison.OrdinalIgnoreCase) ? value : $"token {value}";
+}
+
+static bool HasErpConfig()
+{
+    var path = StatePaths.GetErpConfigPath();
+    return File.Exists(path);
+}
+
+static ErpProfile? TryLoadErpProfile()
+{
+    var path = StatePaths.GetErpConfigPath();
+    if (!File.Exists(path))
+    {
+        return null;
+    }
+
+    try
+    {
+        var raw = File.ReadAllText(path);
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        using var doc = JsonDocument.Parse(raw);
+        if (!doc.RootElement.TryGetProperty("erp", out var erp) || erp.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var profiles = erp.TryGetProperty("profiles", out var profilesElement) &&
+                       profilesElement.ValueKind == JsonValueKind.Object
+            ? profilesElement
+            : default;
+
+        var activeProfile = ReadString(erp, "activeProfile", ReadString(erp, "active_profile", "local"));
+        if (profiles.ValueKind == JsonValueKind.Object && profiles.TryGetProperty(activeProfile, out var profileElement))
+        {
+            return ParseProfile(profileElement);
+        }
+
+        if (profiles.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var profile in profiles.EnumerateObject())
+            {
+                var parsed = ParseProfile(profile.Value);
+                if (parsed is not null)
+                {
+                    return parsed;
+                }
+            }
+        }
+    }
+    catch
+    {
+        return null;
+    }
+
+    return null;
+}
+
+static ErpProfile? ParseProfile(JsonElement profile)
+{
+    if (profile.ValueKind != JsonValueKind.Object)
+    {
+        return null;
+    }
+
+    var rpcEnabled = ReadBool(profile, "rpcEnabled", ReadBool(profile, "rpc_enabled", true));
+    var enabled = ReadBool(profile, "enabled", true);
+    var baseUrl = ReadString(profile, "baseUrl", ReadString(profile, "base_url", string.Empty));
+    var auth = ReadString(profile, "auth", ReadString(profile, "authorization", string.Empty));
+    var device = ReadString(profile, "device", string.Empty);
+
+    return new ErpProfile(rpcEnabled, enabled, baseUrl, auth, device);
+}
+
+static string ReadString(JsonElement element, string name, string fallback)
+{
+    if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(name, out var value))
+    {
+        return fallback;
+    }
+
+    return value.ValueKind switch
+    {
+        JsonValueKind.String => value.GetString() ?? fallback,
+        JsonValueKind.Number => value.ToString(),
+        JsonValueKind.True => "true",
+        JsonValueKind.False => "false",
+        _ => fallback
+    };
+}
+
+static bool ReadBool(JsonElement element, string name, bool fallback)
+{
+    if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(name, out var value))
+    {
+        return fallback;
+    }
+
+    return value.ValueKind switch
+    {
+        JsonValueKind.True => true,
+        JsonValueKind.False => false,
+        JsonValueKind.String when bool.TryParse(value.GetString(), out var parsed) => parsed,
+        JsonValueKind.Number when value.TryGetInt32(out var parsed) => parsed != 0,
+        _ => fallback
+    };
+}
+
 sealed record CliContext(
     PrinterOptions PrinterOptions,
     EncodeService EncodeService,
     PrinterControlService PrinterControl);
+
+sealed record ErpProfile(
+    bool RpcEnabled,
+    bool Enabled,
+    string BaseUrl,
+    string Auth,
+    string Device);
 
 sealed class ArgParser
 {
