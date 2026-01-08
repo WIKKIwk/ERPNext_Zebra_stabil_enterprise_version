@@ -328,6 +328,9 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
     var printerDetail = "probe pending";
     var printerConnected = false;
 
+    var scaleIntervalMs = GetEnvInt("ZEBRA_TUI_SCALE_MS", 100, 20, 1000);
+    var refreshIntervalMs = GetEnvInt("ZEBRA_TUI_REFRESH_MS", 50, 20, 500);
+
     var lastHealthAt = 0L;
     var lastConfigAt = 0L;
     var lastPrinterAt = 0L;
@@ -432,8 +435,7 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
             lastPrinterAt = nowMs;
         }
 
-        var scaleInterval = 10;
-        if (nowMs - lastScaleAt >= scaleInterval)
+        if (nowMs - lastScaleAt >= scaleIntervalMs)
         {
             try
             {
@@ -480,7 +482,7 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
         Console.WriteLine("----------------------------------------------");
         Console.WriteLine("Keys   : [Q] Quit  [S] Setup");
 
-        await Task.Delay(10);
+        await Task.Delay(refreshIntervalMs);
     }
 
     Console.CursorVisible = true;
@@ -513,6 +515,24 @@ static string GetModeLine()
     var baseUrl = string.IsNullOrWhiteSpace(profile.BaseUrl) ? "missing url" : profile.BaseUrl;
     var device = string.IsNullOrWhiteSpace(profile.Device) ? string.Empty : $" device={profile.Device}";
     return $"Mode: ONLINE ({baseUrl}){device}";
+}
+
+static int GetEnvInt(string key, int fallback, int min, int max)
+{
+    var raw = Environment.GetEnvironmentVariable(key);
+    if (string.IsNullOrWhiteSpace(raw))
+    {
+        return fallback;
+    }
+    if (!int.TryParse(raw.Trim(), out var parsed))
+    {
+        return fallback;
+    }
+    if (parsed < min)
+    {
+        return min;
+    }
+    return parsed > max ? max : parsed;
 }
 
 static int HandleUnknown(string command)
