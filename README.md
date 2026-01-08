@@ -58,6 +58,14 @@ CLI (terminal):
 ./cli.sh printer resume
 ```
 
+Terminal TUI (clean screen, no log spam):
+
+```
+./run.sh --tui
+```
+
+This starts the web service in the background and opens a clean terminal dashboard.
+
 ## Example Calls
 
 Encode a single EPC:
