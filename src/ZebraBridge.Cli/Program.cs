@@ -321,6 +321,21 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
         exit = true;
     };
 
+    var healthLine = "Health: waiting";
+    var configLine = "Config: waiting";
+    var scaleLine = "Scale: waiting";
+    var printerState = "SEARCHING";
+    var printerDetail = "probe pending";
+    var printerConnected = false;
+
+    var lastHealthAt = 0L;
+    var lastConfigAt = 0L;
+    var lastPrinterAt = 0L;
+    var lastScaleAt = 0L;
+    var lastBeatAt = 0L;
+    var beatIndex = 0;
+    var beatFrames = new[] { ".", "o", "O", "o" };
+
     while (!exit)
     {
         if (!Console.IsInputRedirected && Console.KeyAvailable)
@@ -344,88 +359,112 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
         }
 
         var now = DateTimeOffset.Now;
-        string healthLine = "Health: unknown";
-        string configLine = "Config: unavailable";
-        string printerLine = "Printer: checking";
-        string scaleLine = "Scale: unavailable";
+        var nowMs = now.ToUnixTimeMilliseconds();
 
-        try
+        if (nowMs - lastBeatAt >= 120)
         {
-            var health = await GetJsonAsync(client, "/api/v1/health");
-            var service = health.TryGetProperty("service", out var svc) ? svc.GetString() : "service";
-            var ok = health.TryGetProperty("ok", out var okValue) && okValue.GetBoolean();
-            healthLine = $"Health: {(ok ? "OK" : "FAIL")} ({service})";
-        }
-        catch (Exception ex)
-        {
-            healthLine = $"Health: ERROR ({ex.Message})";
+            beatIndex = (beatIndex + 1) % beatFrames.Length;
+            lastBeatAt = nowMs;
         }
 
-        try
+        if (nowMs - lastHealthAt >= 1000)
         {
-            var config = await GetJsonAsync(client, "/api/v1/config");
-            var device = config.TryGetProperty("device_path", out var dev) ? dev.GetString() : "";
-            var transport = config.TryGetProperty("transport", out var tr) ? tr.GetString() : "";
-            var template = config.TryGetProperty("zebra_template_enabled", out var te) && te.GetBoolean()
-                ? "template=on"
-                : "template=off";
-            configLine = $"Config: device={device} transport={transport} {template}";
-        }
-        catch (Exception ex)
-        {
-            configLine = $"Config: ERROR ({ex.Message})";
-        }
-
-        try
-        {
-            var status = await GetJsonAsync(client, "/api/v1/printer/status");
-            var connected = status.TryGetProperty("connected", out var conn) && conn.GetBoolean();
-            var transport = status.TryGetProperty("transport", out var tr) ? tr.GetString() : "";
-            var device = status.TryGetProperty("device_path", out var dev) ? dev.GetString() : "";
-            var vendor = status.TryGetProperty("vendor_id", out var vid) ? vid.GetString() : "";
-            var product = status.TryGetProperty("product_id", out var pid) ? pid.GetString() : "";
-            var message = status.TryGetProperty("message", out var msg) ? msg.GetString() : "";
-
-            var state = connected ? "CONNECTED" : "SEARCHING";
-            var detail = transport == "usb"
-                ? $"{transport} {vendor}:{product}"
-                : $"{transport} {device}";
-            if (!string.IsNullOrWhiteSpace(message))
+            try
             {
-                detail = $"{detail} - {message}";
+                var health = await GetJsonAsync(client, "/api/v1/health");
+                var service = health.TryGetProperty("service", out var svc) ? svc.GetString() : "service";
+                var ok = health.TryGetProperty("ok", out var okValue) && okValue.GetBoolean();
+                healthLine = $"Health: {(ok ? "OK" : "FAIL")} ({service})";
             }
-            printerLine = $"Printer: {state} ({detail.Trim()})";
-        }
-        catch (Exception ex)
-        {
-            printerLine = $"Printer: ERROR ({ex.Message})";
+            catch (Exception ex)
+            {
+                healthLine = $"Health: ERROR ({ex.Message})";
+            }
+            lastHealthAt = nowMs;
         }
 
-        try
+        if (nowMs - lastConfigAt >= 1000)
         {
-            var scale = await GetJsonAsync(client, "/api/v1/scale");
-            if (scale.TryGetProperty("weight", out var weightElement) && weightElement.ValueKind == JsonValueKind.Number)
+            try
             {
-                var weight = weightElement.GetDouble();
-                var unit = scale.TryGetProperty("unit", out var unitElement) ? unitElement.GetString() : "kg";
-                var stable = scale.TryGetProperty("stable", out var stableElement) && stableElement.ValueKind != JsonValueKind.Null
-                    ? (stableElement.GetBoolean() ? "stable" : "unstable")
-                    : "unverified";
-                var port = scale.TryGetProperty("port", out var portElement) ? portElement.GetString() : "";
-                scaleLine = $"Scale: {weight:0.000} {unit} ({stable}) {port}";
+                var config = await GetJsonAsync(client, "/api/v1/config");
+                var device = config.TryGetProperty("device_path", out var dev) ? dev.GetString() : "";
+                var transport = config.TryGetProperty("transport", out var tr) ? tr.GetString() : "";
+                var template = config.TryGetProperty("zebra_template_enabled", out var te) && te.GetBoolean()
+                    ? "template=on"
+                    : "template=off";
+                configLine = $"Config: device={device} transport={transport} {template}";
             }
-            else
+            catch (Exception ex)
             {
-                var error = scale.TryGetProperty("error", out var err) ? err.GetString() : "no data";
-                scaleLine = $"Scale: {error}";
+                configLine = $"Config: ERROR ({ex.Message})";
             }
+            lastConfigAt = nowMs;
         }
-        catch (Exception ex)
+
+        if (nowMs - lastPrinterAt >= 500)
         {
-            scaleLine = $"Scale: ERROR ({ex.Message})";
+            try
+            {
+                var status = await GetJsonAsync(client, "/api/v1/printer/status");
+                printerConnected = status.TryGetProperty("connected", out var conn) && conn.GetBoolean();
+                var transport = status.TryGetProperty("transport", out var tr) ? tr.GetString() : "";
+                var device = status.TryGetProperty("device_path", out var dev) ? dev.GetString() : "";
+                var vendor = status.TryGetProperty("vendor_id", out var vid) ? vid.GetString() : "";
+                var product = status.TryGetProperty("product_id", out var pid) ? pid.GetString() : "";
+                var message = status.TryGetProperty("message", out var msg) ? msg.GetString() : "";
+
+                printerState = printerConnected ? "CONNECTED" : "SEARCHING";
+                printerDetail = transport == "usb"
+                    ? $"{transport} {vendor}:{product}"
+                    : $"{transport} {device}";
+                if (!string.IsNullOrWhiteSpace(message))
+                {
+                    printerDetail = $"{printerDetail} - {message}";
+                }
+            }
+            catch (Exception ex)
+            {
+                printerState = "ERROR";
+                printerDetail = ex.Message;
+                printerConnected = false;
+            }
+            lastPrinterAt = nowMs;
+        }
+
+        var scaleInterval = 10;
+        if (nowMs - lastScaleAt >= scaleInterval)
+        {
+            try
+            {
+                var scale = await GetJsonAsync(client, "/api/v1/scale");
+                if (scale.TryGetProperty("weight", out var weightElement) && weightElement.ValueKind == JsonValueKind.Number)
+                {
+                    var weight = weightElement.GetDouble();
+                    var unit = scale.TryGetProperty("unit", out var unitElement) ? unitElement.GetString() : "kg";
+                    var stable = scale.TryGetProperty("stable", out var stableElement) && stableElement.ValueKind != JsonValueKind.Null
+                        ? (stableElement.GetBoolean() ? "stable" : "unstable")
+                        : "unverified";
+                    var port = scale.TryGetProperty("port", out var portElement) ? portElement.GetString() : "";
+                    scaleLine = $"Scale: {weight:0.000} {unit} ({stable}) {port}";
+                }
+                else
+                {
+                    var error = scale.TryGetProperty("error", out var err) ? err.GetString() : "no data";
+                    scaleLine = $"Scale: {error}";
+                }
+            }
+            catch (Exception ex)
+            {
+                scaleLine = $"Scale: ERROR ({ex.Message})";
+            }
+            lastScaleAt = nowMs;
         }
 
         var modeLine = GetModeLine();
+        var pulse = beatFrames[beatIndex];
+        var statusBadge = printerConnected ? "OK" : "WAIT";
+        var printerLine = $"Printer: {printerState} [{statusBadge}] pulse:{pulse} ({printerDetail.Trim()})";
 
         Console.Clear();
         Console.WriteLine("ZebraBridge Terminal UI");
@@ -441,7 +480,7 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
         Console.WriteLine("----------------------------------------------");
         Console.WriteLine("Keys   : [Q] Quit  [S] Setup");
 
-        await Task.Delay(500);
+        await Task.Delay(10);
     }
 
     Console.CursorVisible = true;
