@@ -157,6 +157,11 @@ public sealed class FileEpcGenerator : IEpcGenerator
 
     private static void LockFile(FileStream stream)
     {
+        if (OperatingSystem.IsMacOS())
+        {
+            return;
+        }
+
         try
         {
             stream.Lock(0, long.MaxValue);
@@ -168,6 +173,11 @@ public sealed class FileEpcGenerator : IEpcGenerator
 
     private static void UnlockFile(FileStream stream)
     {
+        if (OperatingSystem.IsMacOS())
+        {
+            return;
+        }
+
         try
         {
             stream.Unlock(0, long.MaxValue);
