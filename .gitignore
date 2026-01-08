@@ -2,6 +2,7 @@ bin/
 obj/
 .vs/
 .dotnet/
+logs/
 *.user
 *.suo
 *.userprefs
