@@ -119,6 +119,77 @@ if [[ "${1:-}" == "--tui" ]]; then
   LOG_FILE="${LOG_FILE:-${LOG_DIR}/zebra-web.log}"
   mkdir -p "${LOG_DIR}"
 
+  expand_home() {
+    local path="$1"
+    if [[ "${path}" == "~"* ]]; then
+      echo "${path/#\~/${HOME}}"
+      return
+    fi
+    echo "${path}"
+  }
+
+  resolve_state_dir() {
+    if [[ -n "${ZEBRA_STATE_DIR:-}" ]]; then
+      expand_home "${ZEBRA_STATE_DIR}"
+      return
+    fi
+    if [[ -n "${XDG_STATE_HOME:-}" ]]; then
+      echo "$(expand_home "${XDG_STATE_HOME}")/zebra-bridge"
+      return
+    fi
+    echo "${HOME}/.local/state/zebra-bridge"
+  }
+
+  resolve_erp_config_path() {
+    if [[ -n "${ZEBRA_ERP_CONFIG_PATH:-}" ]]; then
+      expand_home "${ZEBRA_ERP_CONFIG_PATH}"
+      return
+    fi
+    echo "$(resolve_state_dir)/erp-config.json"
+  }
+
+  SETUP_ARGS=()
+  TUI_ARGS=()
+  FORCE_SETUP=0
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --setup)
+        FORCE_SETUP=1
+        ;;
+      --online|--offline)
+        SETUP_ARGS+=("$1")
+        FORCE_SETUP=1
+        ;;
+      --erp-url|--erp-token|--device|--mode)
+        SETUP_ARGS+=("$1")
+        shift || true
+        if [[ -n "${1:-}" ]]; then
+          SETUP_ARGS+=("$1")
+        fi
+        FORCE_SETUP=1
+        ;;
+      --url)
+        TUI_ARGS+=("$1")
+        shift || true
+        if [[ -n "${1:-}" ]]; then
+          TUI_ARGS+=("$1")
+        fi
+        ;;
+      *)
+        TUI_ARGS+=("$1")
+        ;;
+    esac
+    shift || true
+  done
+
+  ERP_CONFIG_PATH="$(resolve_erp_config_path)"
+  if [[ "${ZEBRA_TUI_SETUP:-1}" != "0" ]]; then
+    if [[ "${FORCE_SETUP}" == "1" || ! -f "${ERP_CONFIG_PATH}" ]]; then
+      "${ROOT_DIR}/cli.sh" setup "${SETUP_ARGS[@]}"
+    fi
+  fi
+
   "${DOTNET_BIN}" run --project "${ROOT_DIR}/src/ZebraBridge.Web/ZebraBridge.Web.csproj" \
     > "${LOG_FILE}" 2>&1 &
 
@@ -133,7 +204,7 @@ if [[ "${1:-}" == "--tui" ]]; then
   }
 
   trap cleanup EXIT INT TERM
-  "${ROOT_DIR}/cli.sh" tui --setup "$@"
+  "${ROOT_DIR}/cli.sh" tui "${TUI_ARGS[@]}"
   exit 0
 fi
 
