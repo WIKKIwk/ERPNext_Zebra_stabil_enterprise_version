@@ -47,6 +47,35 @@ var app = builder.Build();
 
 app.UseCors();
 
+var apiToken = GetApiToken();
+if (!string.IsNullOrWhiteSpace(apiToken))
+{
+    app.Use(async (context, next) =>
+    {
+        if (!IsProtectedPath(context.Request.Path) ||
+            context.Request.Method.Equals("OPTIONS", StringComparison.OrdinalIgnoreCase))
+        {
+            await next();
+            return;
+        }
+
+        if (IsHealthPath(context.Request.Path))
+        {
+            await next();
+            return;
+        }
+
+        if (!IsAuthorized(context, apiToken))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsJsonAsync(new { ok = false, message = "Unauthorized" });
+            return;
+        }
+
+        await next();
+    });
+}
+
 var disableUi = Environment.GetEnvironmentVariable("ZEBRA_DISABLE_UI");
 if (!IsTrue(disableUi))
 {
@@ -66,7 +95,8 @@ app.MapGet("/api/v1/config", (PrinterOptions printer) => Results.Ok(new
     device_path = printer.DevicePath ?? string.Empty,
     feed_after_encode = printer.FeedAfterEncode,
     zebra_template_enabled = !string.IsNullOrWhiteSpace(printer.RfidZplTemplate),
-    transport = printer.Transport
+    transport = printer.Transport,
+    transceive_supported = string.Equals(printer.Transport, "usb", StringComparison.OrdinalIgnoreCase)
 }));
 
 app.MapGet("/api/v1/usb-devices", (PrinterOptions printer) =>
@@ -320,6 +350,65 @@ static bool IsTrue(string? raw)
         return false;
     }
     return raw.Trim().ToLowerInvariant() is "1" or "true" or "yes" or "y" or "on";
+}
+
+static string? GetApiToken()
+{
+    var raw = Environment.GetEnvironmentVariable("ZEBRA_API_TOKEN")
+              ?? Environment.GetEnvironmentVariable("ZEBRA_API_AUTH");
+    return string.IsNullOrWhiteSpace(raw) ? null : raw.Trim();
+}
+
+static bool IsProtectedPath(PathString path)
+{
+    return path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase)
+           || path.StartsWithSegments("/v1", StringComparison.OrdinalIgnoreCase);
+}
+
+static bool IsHealthPath(PathString path)
+{
+    return path.Equals("/api/v1/health", StringComparison.OrdinalIgnoreCase);
+}
+
+static bool IsAuthorized(HttpContext context, string token)
+{
+    var header = context.Request.Headers.Authorization.ToString().Trim();
+    if (!string.IsNullOrWhiteSpace(header))
+    {
+        var normalized = NormalizeAuthHeader(header);
+        if (string.Equals(normalized, token, StringComparison.Ordinal))
+        {
+            return true;
+        }
+    }
+
+    if (context.Request.Headers.TryGetValue("X-Zebra-Token", out var zebraToken) &&
+        string.Equals(zebraToken.ToString().Trim(), token, StringComparison.Ordinal))
+    {
+        return true;
+    }
+
+    if (context.Request.Headers.TryGetValue("X-Api-Key", out var apiKey) &&
+        string.Equals(apiKey.ToString().Trim(), token, StringComparison.Ordinal))
+    {
+        return true;
+    }
+
+    return false;
+}
+
+static string NormalizeAuthHeader(string raw)
+{
+    var value = raw.Trim();
+    if (value.StartsWith("token ", StringComparison.OrdinalIgnoreCase))
+    {
+        return value[6..].Trim();
+    }
+    if (value.StartsWith("bearer ", StringComparison.OrdinalIgnoreCase))
+    {
+        return value[7..].Trim();
+    }
+    return value;
 }
 
 static List<string> GetCorsOrigins()
