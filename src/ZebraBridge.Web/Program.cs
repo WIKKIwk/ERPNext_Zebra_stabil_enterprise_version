@@ -8,6 +8,25 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 builder.Logging.AddFilter("Microsoft.Extensions.Http", LogLevel.Warning);
 
+var corsOrigins = GetCorsOrigins();
+var corsAllowAll = IsTrue(Environment.GetEnvironmentVariable("ZEBRA_CORS_ALLOW_ALL"));
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        if (corsAllowAll || corsOrigins.Count == 0)
+        {
+            policy.AllowAnyOrigin();
+        }
+        else
+        {
+            policy.WithOrigins(corsOrigins.ToArray());
+        }
+        policy.AllowAnyHeader();
+        policy.AllowAnyMethod();
+    });
+});
+
 builder.Services.AddSingleton(BuildPrinterOptions(builder.Configuration));
 builder.Services.AddSingleton(BuildScaleOptions(builder.Configuration));
 builder.Services.AddSingleton(BuildErpAgentOptions(builder.Configuration));
@@ -24,6 +43,8 @@ builder.Services.AddHostedService<ScaleReaderService>();
 builder.Services.AddHostedService<ErpAgentService>();
 
 var app = builder.Build();
+
+app.UseCors();
 
 var disableUi = Environment.GetEnvironmentVariable("ZEBRA_DISABLE_UI");
 if (!IsTrue(disableUi))
@@ -249,4 +270,20 @@ static bool IsTrue(string? raw)
         return false;
     }
     return raw.Trim().ToLowerInvariant() is "1" or "true" or "yes" or "y" or "on";
+}
+
+static List<string> GetCorsOrigins()
+{
+    var raw = Environment.GetEnvironmentVariable("ZEBRA_CORS_ORIGINS") ?? string.Empty;
+    var entries = raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    if (entries.Length > 0)
+    {
+        return entries.Where(origin => !string.IsNullOrWhiteSpace(origin)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    return new List<string>
+    {
+        "http://127.0.0.1:8000",
+        "http://localhost:8000"
+    };
 }
