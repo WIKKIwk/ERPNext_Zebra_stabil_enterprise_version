@@ -25,8 +25,12 @@ builder.Services.AddHostedService<ErpAgentService>();
 
 var app = builder.Build();
 
-app.UseDefaultFiles();
-app.UseStaticFiles();
+var disableUi = Environment.GetEnvironmentVariable("ZEBRA_DISABLE_UI");
+if (!IsTrue(disableUi))
+{
+    app.UseDefaultFiles();
+    app.UseStaticFiles();
+}
 
 app.MapGet("/api/v1/health", () => Results.Ok(new
 {
@@ -236,4 +240,13 @@ static EpcGeneratorOptions BuildEpcGeneratorOptions(IConfiguration config)
     config.GetSection("EpcGenerator").Bind(options);
     options.ApplyEnvironment();
     return options;
+}
+
+static bool IsTrue(string? raw)
+{
+    if (string.IsNullOrWhiteSpace(raw))
+    {
+        return false;
+    }
+    return raw.Trim().ToLowerInvariant() is "1" or "true" or "yes" or "y" or "on";
 }
