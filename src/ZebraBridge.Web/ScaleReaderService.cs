@@ -403,7 +403,7 @@ public sealed class ScaleReaderService : BackgroundService
             }
         }
 
-        var client = _clientFactory.CreateClient();
+        var client = _clientFactory.CreateClient("zebra");
         using var response = await client.SendAsync(request, token);
         response.EnsureSuccessStatusCode();
     }

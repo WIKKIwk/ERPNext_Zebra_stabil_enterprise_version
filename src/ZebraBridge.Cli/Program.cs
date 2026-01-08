@@ -1,3 +1,4 @@
+using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using ZebraBridge.Application;
@@ -312,7 +313,17 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
         }
     }
 
-    using var client = new HttpClient { BaseAddress = new Uri(baseUrl) };
+    var httpTimeoutMs = GetEnvInt("ZEBRA_TUI_HTTP_TIMEOUT_MS", 1500, 200, 10000);
+    var connectTimeoutMs = GetEnvInt("ZEBRA_TUI_CONNECT_TIMEOUT_MS", 800, 100, 5000);
+    using var handler = new SocketsHttpHandler
+    {
+        ConnectTimeout = TimeSpan.FromMilliseconds(connectTimeoutMs)
+    };
+    using var client = new HttpClient(handler)
+    {
+        BaseAddress = new Uri(baseUrl),
+        Timeout = TimeSpan.FromMilliseconds(httpTimeoutMs)
+    };
     Console.CursorVisible = false;
 
     var exit = false;

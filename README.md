@@ -29,6 +29,9 @@ Edit `src/ZebraBridge.Web/appsettings.json` or set environment overrides:
 - ERP agent: `ZEBRA_ERP_URL`, `ZEBRA_ERP_AUTH`, `ZEBRA_ERP_AGENT_ID`, `ZEBRA_ERP_DEVICE`
 - Multi-target ERP: `ZEBRA_ERP_TARGETS_JSON` or `ZEBRA_ERP_URL_LOCAL`/`ZEBRA_ERP_AUTH_LOCAL`, `ZEBRA_ERP_URL_SERVER`/`ZEBRA_ERP_AUTH_SERVER`
 - ERP config file: `ZEBRA_ERP_CONFIG_PATH` (defaults to `~/.local/state/zebra-bridge/erp-config.json`)
+- API auth (recommended in production): `ZEBRA_API_TOKEN` or `ZEBRA_API_AUTH`
+- HTTP timeouts: `ZEBRA_HTTP_TIMEOUT_MS`, `ZEBRA_HTTP_CONNECT_TIMEOUT_MS`
+- TUI tuning: `ZEBRA_TUI_HTTP_TIMEOUT_MS`, `ZEBRA_TUI_CONNECT_TIMEOUT_MS`, `ZEBRA_TUI_SCALE_MS`, `ZEBRA_TUI_REFRESH_MS`
 
 The EPC generator stores state in:
 

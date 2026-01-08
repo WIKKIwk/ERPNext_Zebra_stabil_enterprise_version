@@ -1,3 +1,4 @@
+using System.Net.Http;
 using System.Text;
 using ZebraBridge.Application;
 using ZebraBridge.Core;
@@ -28,11 +29,24 @@ builder.Services.AddCors(options =>
     });
 });
 
+var httpTimeoutMs = GetEnvInt("ZEBRA_HTTP_TIMEOUT_MS", 5000, 500, 60000);
+var httpConnectTimeoutMs = GetEnvInt("ZEBRA_HTTP_CONNECT_TIMEOUT_MS", 2000, 200, 30000);
+
 builder.Services.AddSingleton(BuildPrinterOptions(builder.Configuration));
 builder.Services.AddSingleton(BuildScaleOptions(builder.Configuration));
 builder.Services.AddSingleton(BuildErpAgentOptions(builder.Configuration));
 builder.Services.AddSingleton(BuildEpcGeneratorOptions(builder.Configuration));
-builder.Services.AddHttpClient();
+builder.Services.AddHttpClient("zebra")
+    .ConfigureHttpClient(client =>
+    {
+        client.Timeout = TimeSpan.FromMilliseconds(httpTimeoutMs);
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        ConnectTimeout = TimeSpan.FromMilliseconds(httpConnectTimeoutMs),
+        PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+        PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2)
+    });
 
 builder.Services.AddSingleton<IScaleState, ScaleState>();
 builder.Services.AddSingleton<PrintCoordinator>();
@@ -350,6 +364,21 @@ static bool IsTrue(string? raw)
         return false;
     }
     return raw.Trim().ToLowerInvariant() is "1" or "true" or "yes" or "y" or "on";
+}
+
+static int GetEnvInt(string key, int fallback, int min, int max)
+{
+    var raw = Environment.GetEnvironmentVariable(key);
+    if (string.IsNullOrWhiteSpace(raw) || !int.TryParse(raw.Trim(), out var parsed))
+    {
+        return fallback;
+    }
+
+    if (parsed < min)
+    {
+        return min;
+    }
+    return parsed > max ? max : parsed;
 }
 
 static string? GetApiToken()

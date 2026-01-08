@@ -58,7 +58,7 @@ public sealed class ErpAgentService : BackgroundService
     {
         var heartbeatInterval = TimeSpan.FromMilliseconds(config.HeartbeatIntervalMs);
         var pollInterval = TimeSpan.FromMilliseconds(config.PollIntervalMs);
-        var client = _clientFactory.CreateClient();
+        var client = _clientFactory.CreateClient("zebra");
 
         var nextHeartbeatAt = DateTimeOffset.UtcNow;
         var nextPollAt = DateTimeOffset.UtcNow;
@@ -106,7 +106,8 @@ public sealed class ErpAgentService : BackgroundService
                 var backoff = pollFailCount == 0
                     ? pollInterval
                     : TimeSpan.FromMilliseconds(Math.Min(30000, pollInterval.TotalMilliseconds * Math.Pow(2, pollFailCount)));
-                nextPollAt = now + backoff;
+                var jitter = TimeSpan.FromMilliseconds(Random.Shared.Next(0, 250));
+                nextPollAt = now + backoff + jitter;
             }
 
             var nextTick = nextHeartbeatAt < nextPollAt ? nextHeartbeatAt : nextPollAt;
@@ -146,7 +147,7 @@ public sealed class ErpAgentService : BackgroundService
                 ["encode"] = true,
                 ["encode_batch"] = true,
                 ["print_zpl"] = true,
-                ["transceive"] = true
+                ["transceive"] = IsTransceiveSupported()
             },
             ["ts"] = NowMs()
         };
@@ -283,6 +284,11 @@ public sealed class ErpAgentService : BackgroundService
 
         if (cmd is "ZEBRA_TRANSCEIVE_ZPL" or "TRANSCEIVE_ZPL")
         {
+            if (!IsTransceiveSupported())
+            {
+                throw new PrinterUnsupportedOperationException("Transceive is only supported when ZEBRA_TRANSPORT=usb.");
+            }
+
             var zpl = GetString(args, "zpl");
             var readTimeoutMs = GetInt(args, "read_timeout_ms", 2000, 50, 20000);
             var maxBytes = GetInt(args, "max_bytes", 32768, 1, 262144);
@@ -514,6 +520,11 @@ public sealed class ErpAgentService : BackgroundService
     }
 
     private static long NowMs() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+    private bool IsTransceiveSupported()
+    {
+        return string.Equals(_printerOptions.Transport, "usb", StringComparison.OrdinalIgnoreCase);
+    }
 
     private static int ParseEnvInt(string key)
     {
