@@ -45,4 +45,8 @@ public class EpcGeneratorException : ZebraBridgeException
     public EpcGeneratorException(string message) : base(message)
     {
     }
+
+    public EpcGeneratorException(string message, Exception innerException) : base(message, innerException)
+    {
+    }
 }
