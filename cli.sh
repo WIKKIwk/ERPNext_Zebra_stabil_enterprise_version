@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOTNET_DIR="${DOTNET_DIR:-${ROOT_DIR}/.dotnet}"
 DOTNET_BIN="${DOTNET_BIN:-${DOTNET_DIR}/dotnet}"
 DOTNET_CHANNEL="${DOTNET_CHANNEL:-8.0}"
+DOTNET_INSTALL_LOG="${DOTNET_INSTALL_LOG:-${DOTNET_DIR}/dotnet-install.log}"
 
 download_file() {
   local url="$1"
@@ -38,7 +39,11 @@ ensure_dotnet() {
     chmod +x "${install_script}"
   fi
 
-  "${install_script}" --channel "${DOTNET_CHANNEL}" --install-dir "${DOTNET_DIR}" --no-path
+  if ! "${install_script}" --channel "${DOTNET_CHANNEL}" --install-dir "${DOTNET_DIR}" --no-path \
+    > "${DOTNET_INSTALL_LOG}" 2>&1; then
+    cat "${DOTNET_INSTALL_LOG}" >&2
+    exit 1
+  fi
 
   export DOTNET_ROOT="${DOTNET_DIR}"
   export PATH="${DOTNET_DIR}:${PATH}"
