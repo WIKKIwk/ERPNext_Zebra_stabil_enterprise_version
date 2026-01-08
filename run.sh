@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOTNET_DIR="${DOTNET_DIR:-${ROOT_DIR}/.dotnet}"
 DOTNET_BIN="${DOTNET_BIN:-${DOTNET_DIR}/dotnet}"
 DOTNET_CHANNEL="${DOTNET_CHANNEL:-8.0}"
+DOTNET_INSTALL_LOG="${DOTNET_INSTALL_LOG:-${DOTNET_DIR}/dotnet-install.log}"
 
 download_file() {
   local url="$1"
@@ -38,10 +39,64 @@ ensure_dotnet() {
     chmod +x "${install_script}"
   fi
 
-  "${install_script}" --channel "${DOTNET_CHANNEL}" --install-dir "${DOTNET_DIR}" --no-path
+  if ! "${install_script}" --channel "${DOTNET_CHANNEL}" --install-dir "${DOTNET_DIR}" --no-path \
+    > "${DOTNET_INSTALL_LOG}" 2>&1; then
+    cat "${DOTNET_INSTALL_LOG}" >&2
+    exit 1
+  fi
 
   export DOTNET_ROOT="${DOTNET_DIR}"
   export PATH="${DOTNET_DIR}:${PATH}"
+}
+
+check_web_health() {
+  local base_url="$1"
+  local url="${base_url%/}/api/v1/health"
+
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsS "${url}" >/dev/null 2>&1 && return 0
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO /dev/null "${url}" >/dev/null 2>&1 && return 0
+  fi
+
+  return 1
+}
+
+show_boot_animation() {
+  local base_url="$1"
+  if [[ ! -t 1 ]]; then
+    return
+  fi
+
+  local frames=(
+$'ZEBRA BRIDGE\n[>----------]\nInitializing...'
+$'ZEBRA BRIDGE\n[=>---------]\nInitializing...'
+$'ZEBRA BRIDGE\n[==>--------]\nInitializing...'
+$'ZEBRA BRIDGE\n[===>-------]\nInitializing...'
+$'ZEBRA BRIDGE\n[====>------]\nInitializing...'
+$'ZEBRA BRIDGE\n[=====>-----]\nInitializing...'
+$'ZEBRA BRIDGE\n[======>----]\nInitializing...'
+$'ZEBRA BRIDGE\n[=======>---]\nInitializing...'
+$'ZEBRA BRIDGE\n[========>--]\nInitializing...'
+$'ZEBRA BRIDGE\n[=========>-]\nInitializing...'
+$'ZEBRA BRIDGE\n[==========>]\nInitializing...'
+  )
+
+  local start=$SECONDS
+  local min_seconds=1
+  local max_seconds=8
+  local i=0
+
+  while (( SECONDS - start < max_seconds )); do
+    printf "\033[2J\033[H%s" "${frames[i]}"
+    i=$(( (i + 1) % ${#frames[@]} ))
+    if check_web_health "${base_url}" && (( SECONDS - start >= min_seconds )); then
+      break
+    fi
+    sleep 0.08
+  done
+
+  printf "\033[2J\033[H"
 }
 
 ensure_dotnet
@@ -56,7 +111,8 @@ if [[ "${1:-}" == "--tui" ]]; then
     > "${LOG_FILE}" 2>&1 &
 
   SERVER_PID=$!
-  echo "ZebraBridge web started (pid: ${SERVER_PID}). Logs: ${LOG_FILE}"
+  BASE_URL="http://${ZEBRA_WEB_HOST:-127.0.0.1}:${ZEBRA_WEB_PORT:-18000}"
+  show_boot_animation "${BASE_URL}"
 
   cleanup() {
     if kill -0 "${SERVER_PID}" >/dev/null 2>&1; then
