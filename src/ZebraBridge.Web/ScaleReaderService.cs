@@ -20,6 +20,7 @@ public sealed class ScaleReaderService : BackgroundService
     private readonly ScaleOptions _options;
     private readonly IScaleState _scaleState;
     private readonly ErpAgentOptions _erpOptions;
+    private readonly ErpAgentRuntimeConfig? _erpTarget;
     private readonly IHttpClientFactory _clientFactory;
     private readonly ILogger<ScaleReaderService> _logger;
     private readonly SemaphoreSlim _pushLock = new(1, 1);
@@ -38,6 +39,7 @@ public sealed class ScaleReaderService : BackgroundService
         _options = options;
         _scaleState = scaleState;
         _erpOptions = erpOptions;
+        _erpTarget = ResolveErpTarget(erpOptions);
         _clientFactory = clientFactory;
         _logger = logger;
     }
@@ -314,8 +316,8 @@ public sealed class ScaleReaderService : BackgroundService
             return;
         }
 
-        var baseUrl = NormalizeBaseUrl(_erpOptions.BaseUrl);
-        var auth = NormalizeAuth(_erpOptions.Auth);
+        var baseUrl = NormalizeBaseUrl(_erpTarget?.BaseUrl ?? _erpOptions.BaseUrl);
+        var auth = _erpTarget?.AuthHeader ?? NormalizeAuth(_erpOptions.Auth);
         if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(auth))
         {
             return;
@@ -341,7 +343,9 @@ public sealed class ScaleReaderService : BackgroundService
 
         try
         {
-            var device = string.IsNullOrWhiteSpace(_options.Device) ? _erpOptions.Device : _options.Device;
+            var device = string.IsNullOrWhiteSpace(_options.Device)
+                ? (_erpTarget?.Device ?? _erpOptions.Device)
+                : _options.Device;
             if (string.IsNullOrWhiteSpace(device))
             {
                 device = Environment.MachineName;
@@ -357,13 +361,11 @@ public sealed class ScaleReaderService : BackgroundService
                 ["device"] = device
             };
 
-            var headers = new Dictionary<string, string>
+            var headers = new Dictionary<string, string> { ["Authorization"] = auth };
+            var secret = _erpTarget?.Secret ?? _erpOptions.Secret;
+            if (!string.IsNullOrWhiteSpace(secret))
             {
-                ["Authorization"] = auth
-            };
-            if (!string.IsNullOrWhiteSpace(_erpOptions.Secret))
-            {
-                headers["X-RFIDenter-Token"] = _erpOptions.Secret;
+                headers["X-RFIDenter-Token"] = secret;
             }
 
             var url = $"{baseUrl}{_options.PushEndpoint}";
@@ -404,6 +406,18 @@ public sealed class ScaleReaderService : BackgroundService
         var client = _clientFactory.CreateClient();
         using var response = await client.SendAsync(request, token);
         response.EnsureSuccessStatusCode();
+    }
+
+    private static ErpAgentRuntimeConfig? ResolveErpTarget(ErpAgentOptions options)
+    {
+        try
+        {
+            return ErpAgentConfigLoader.Load(options).FirstOrDefault();
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string NormalizeBaseUrl(string? raw)
