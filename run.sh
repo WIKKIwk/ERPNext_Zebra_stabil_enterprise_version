@@ -65,7 +65,7 @@ if [[ "${1:-}" == "--tui" ]]; then
   }
 
   trap cleanup EXIT INT TERM
-  "${ROOT_DIR}/cli.sh" tui "$@"
+  "${ROOT_DIR}/cli.sh" tui --setup "$@"
   exit 0
 fi
 
