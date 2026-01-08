@@ -72,7 +72,7 @@ static async Task<int> HandleEncodeAsync(CliContext ctx, ArgParser parser)
     var result = await ctx.EncodeService.EncodeAsync(
         new EncodeRequest(epc, copies, printHuman, feedAfter, dryRun));
 
-    Console.WriteLine(JsonSerializer.Serialize(result, JsonOptions));
+    Console.WriteLine(ToJson(result));
     return result.Ok ? 0 : 1;
 }
 
@@ -107,7 +107,7 @@ static async Task<int> HandleEncodeBatchAsync(CliContext ctx, ArgParser parser)
     var request = new EncodeBatchRequest(mode, items, autoCount, printHuman, feedAfter);
     var result = await ctx.EncodeService.EncodeBatchAsync(request);
 
-    Console.WriteLine(JsonSerializer.Serialize(result, JsonOptions));
+    Console.WriteLine(ToJson(result));
     return result.Ok ? 0 : 1;
 }
 
@@ -135,7 +135,7 @@ static async Task<int> HandleTransceiveAsync(CliContext ctx, ArgParser parser)
     var maxBytes = parser.GetInt("max", 32768, 1, 262144);
 
     var result = await ctx.EncodeService.TransceiveAsync(new TransceiveRequest(zpl, timeout, maxBytes));
-    Console.WriteLine(JsonSerializer.Serialize(result, JsonOptions));
+    Console.WriteLine(ToJson(result));
     return result.Ok ? 0 : 1;
 }
 
@@ -181,7 +181,7 @@ static int HandleConfig(CliContext ctx)
         transport = ctx.PrinterOptions.Transport
     };
 
-    Console.WriteLine(JsonSerializer.Serialize(payload, JsonOptions));
+    Console.WriteLine(ToJson(payload));
     return 0;
 }
 
@@ -365,7 +365,10 @@ static void PrintUsage()
     Console.WriteLine("  zebra-cli transceive --zpl \"^XA^HH^XZ\"");
 }
 
-static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+static string ToJson(object value)
+{
+    return JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true });
+}
 
 sealed record CliContext(
     PrinterOptions PrinterOptions,
