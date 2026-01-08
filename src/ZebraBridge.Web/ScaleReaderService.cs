@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.Ports;
-using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using ZebraBridge.Core;
 
@@ -391,10 +391,12 @@ public sealed class ScaleReaderService : BackgroundService
         Dictionary<string, string> headers,
         CancellationToken token)
     {
+        var json = JsonSerializer.Serialize(payload);
         using var request = new HttpRequestMessage(HttpMethod.Post, url)
         {
-            Content = JsonContent.Create(payload)
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
         };
+        request.Headers.ExpectContinue = false;
         foreach (var header in headers)
         {
             if (!string.IsNullOrWhiteSpace(header.Value))
@@ -405,7 +407,13 @@ public sealed class ScaleReaderService : BackgroundService
 
         var client = _clientFactory.CreateClient("zebra");
         using var response = await client.SendAsync(request, token);
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(token);
+            var trimmed = string.IsNullOrWhiteSpace(body) ? string.Empty : body.Trim();
+            throw new HttpRequestException(
+                $"Response status code does not indicate success: {(int)response.StatusCode} ({response.StatusCode}). {trimmed}");
+        }
     }
 
     private static ErpAgentRuntimeConfig? ResolveErpTarget(ErpAgentOptions options)
