@@ -1,3 +1,4 @@
+using System.Text;
 using ZebraBridge.Application;
 using ZebraBridge.Core;
 using ZebraBridge.Infrastructure;
@@ -67,6 +68,11 @@ app.MapGet("/api/v1/config", (PrinterOptions printer) => Results.Ok(new
     zebra_template_enabled = !string.IsNullOrWhiteSpace(printer.RfidZplTemplate),
     transport = printer.Transport
 }));
+
+app.MapGet("/api/v1/usb-devices", (PrinterOptions printer) =>
+{
+    return Results.Ok(UsbDeviceSnapshot.BuildPayload(printer));
+});
 
 app.MapGet("/api/v1/printer/status", (PrinterOptions printer) =>
 {
@@ -195,6 +201,50 @@ app.MapPost("/api/v1/transceive", async (TransceiveRequestDto request, IEncodeSe
     }
 });
 
+app.MapPost("/v1/print-jobs", async (
+    PrintJobRequestDto request,
+    PrinterOptions printer,
+    IPrinterTransportFactory transportFactory,
+    PrintCoordinator coordinator,
+    CancellationToken token) =>
+{
+    try
+    {
+        if (string.IsNullOrWhiteSpace(request.Zpl))
+        {
+            return Results.BadRequest(new PrintJobResponseDto(false, "ZPL is required."));
+        }
+
+        var copies = Math.Clamp(request.Copies, 1, 1000);
+        var job = EnsureEndsWithEol(request.Zpl, printer.ZplEol);
+
+        await coordinator.RunLockedAsync(async () =>
+        {
+            var transport = transportFactory.Create();
+            var payload = Encoding.ASCII.GetBytes(job);
+            for (var i = 0; i < copies; i++)
+            {
+                await transport.SendAsync(payload, token);
+            }
+            return 0;
+        }, token);
+
+        return Results.Ok(new PrintJobResponseDto(true, "Print job sent."));
+    }
+    catch (PrinterNotFoundException ex)
+    {
+        return Results.NotFound(new PrintJobResponseDto(false, ex.Message));
+    }
+    catch (PrinterCommunicationException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(ex.Message);
+    }
+});
+
 app.MapPost("/api/v1/printer/resume", async (IPrinterControlService service) =>
 {
     try
@@ -286,4 +336,13 @@ static List<string> GetCorsOrigins()
         "http://127.0.0.1:8000",
         "http://localhost:8000"
     };
+}
+
+static string EnsureEndsWithEol(string zpl, string eol)
+{
+    if (string.IsNullOrWhiteSpace(eol))
+    {
+        return zpl;
+    }
+    return zpl.EndsWith(eol, StringComparison.Ordinal) ? zpl : zpl + eol;
 }
