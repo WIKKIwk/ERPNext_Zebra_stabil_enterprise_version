@@ -119,6 +119,10 @@ if [[ "${1:-}" == "--tui" ]]; then
   LOG_FILE="${LOG_FILE:-${LOG_DIR}/zebra-web.log}"
   mkdir -p "${LOG_DIR}"
 
+  if [[ -z "${ZEBRA_DISABLE_UI:-}" ]]; then
+    export ZEBRA_DISABLE_UI=1
+  fi
+
   expand_home() {
     local path="$1"
     if [[ "${path}" == "~"* ]]; then
