@@ -427,6 +427,10 @@ public sealed class ScaleReaderService : BackgroundService
         {
             return string.Empty;
         }
+        if (!value.Contains("://", StringComparison.Ordinal))
+        {
+            value = "http://" + value;
+        }
         return value.EndsWith("/", StringComparison.Ordinal) ? value[..^1] : value;
     }
 
