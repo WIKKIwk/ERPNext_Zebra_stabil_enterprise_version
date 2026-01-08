@@ -286,8 +286,9 @@ static int HandleSetup(ArgParser parser)
         }
     }
 
-    WriteErpConfig(enabled: true, baseUrl: erpUrl, auth: token, device: device ?? deviceDefault);
-    Console.WriteLine($"ERP mode set to ONLINE. Target: {erpUrl}");
+    var normalizedUrl = NormalizeBaseUrl(erpUrl);
+    WriteErpConfig(enabled: true, baseUrl: normalizedUrl, auth: token, device: device ?? deviceDefault);
+    Console.WriteLine($"ERP mode set to ONLINE. Target: {normalizedUrl}");
     return 0;
 }
 
@@ -688,8 +689,9 @@ static bool RunSetupWizard(bool allowSkip)
         device = deviceDefault;
     }
 
-    WriteErpConfig(enabled: true, baseUrl: erpUrl, auth: token, device: device);
-    Console.WriteLine($"ERP mode set to ONLINE. Target: {erpUrl}");
+    var normalizedUrl = NormalizeBaseUrl(erpUrl);
+    WriteErpConfig(enabled: true, baseUrl: normalizedUrl, auth: token, device: device);
+    Console.WriteLine($"ERP mode set to ONLINE. Target: {normalizedUrl}");
     Console.WriteLine("Press Enter to continue...");
     Console.ReadLine();
     return true;
@@ -757,7 +759,7 @@ static void WriteErpConfig(bool enabled, string baseUrl, string auth, string dev
         ["rpcEnabled"] = enabled,
         ["enabled"] = enabled,
         ["overrideEnv"] = true,
-        ["baseUrl"] = baseUrl?.Trim() ?? string.Empty,
+        ["baseUrl"] = NormalizeBaseUrl(baseUrl),
         ["auth"] = NormalizeAuth(auth),
         ["device"] = device?.Trim() ?? string.Empty
     };
@@ -774,6 +776,20 @@ static void WriteErpConfig(bool enabled, string baseUrl, string auth, string dev
     var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
     File.WriteAllText(path, json);
     Console.WriteLine($"ERP config saved to: {path}");
+}
+
+static string NormalizeBaseUrl(string? raw)
+{
+    var value = (raw ?? string.Empty).Trim();
+    if (string.IsNullOrWhiteSpace(value))
+    {
+        return string.Empty;
+    }
+    if (!value.Contains("://", StringComparison.Ordinal))
+    {
+        value = "http://" + value;
+    }
+    return value.EndsWith("/", StringComparison.Ordinal) ? value[..^1] : value;
 }
 
 static string NormalizeAuth(string? raw)
