@@ -6,6 +6,8 @@ DOTNET_DIR="${DOTNET_DIR:-${ROOT_DIR}/.dotnet}"
 DOTNET_BIN="${DOTNET_BIN:-${DOTNET_DIR}/dotnet}"
 DOTNET_CHANNEL="${DOTNET_CHANNEL:-8.0}"
 DOTNET_INSTALL_LOG="${DOTNET_INSTALL_LOG:-${DOTNET_DIR}/dotnet-install.log}"
+WEB_HOST_DEFAULT="127.0.0.1"
+WEB_PORT_DEFAULT="18000"
 
 download_file() {
   local url="$1"
@@ -101,6 +103,16 @@ $'ZEBRA BRIDGE\n[==========>]\nInitializing...'
 
 ensure_dotnet
 
+WEB_HOST="${ZEBRA_WEB_HOST:-${WEB_HOST_DEFAULT}}"
+WEB_PORT="${ZEBRA_WEB_PORT:-${WEB_PORT_DEFAULT}}"
+
+export ZEBRA_WEB_HOST="${WEB_HOST}"
+export ZEBRA_WEB_PORT="${WEB_PORT}"
+
+if [[ -z "${ASPNETCORE_URLS:-}" ]]; then
+  export ASPNETCORE_URLS="http://${WEB_HOST}:${WEB_PORT}"
+fi
+
 if [[ "${1:-}" == "--tui" ]]; then
   shift || true
   LOG_DIR="${LOG_DIR:-${ROOT_DIR}/logs}"
@@ -111,7 +123,7 @@ if [[ "${1:-}" == "--tui" ]]; then
     > "${LOG_FILE}" 2>&1 &
 
   SERVER_PID=$!
-  BASE_URL="http://${ZEBRA_WEB_HOST:-127.0.0.1}:${ZEBRA_WEB_PORT:-18000}"
+  BASE_URL="http://${WEB_HOST}:${WEB_PORT}"
   show_boot_animation "${BASE_URL}"
 
   cleanup() {
