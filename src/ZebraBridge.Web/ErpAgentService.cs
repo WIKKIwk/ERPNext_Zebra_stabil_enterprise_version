@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using ZebraBridge.Application;
 using ZebraBridge.Core;
+using ZebraBridge.Infrastructure;
 
 namespace ZebraBridge.Web;
 
@@ -243,6 +244,11 @@ public sealed class ErpAgentService : BackgroundService
                 ["zebra_rfid_error_handling_action"] = _printerOptions.ErrorHandlingAction,
                 ["zebra_template_enabled"] = !string.IsNullOrWhiteSpace(_printerOptions.RfidZplTemplate)
             };
+        }
+
+        if (cmd is "ZEBRA_USB_DEVICES" or "USB_DEVICES")
+        {
+            return UsbDeviceSnapshot.BuildPayload(_printerOptions);
         }
 
         if (cmd is "ZEBRA_PRINT_ZPL" or "PRINT_ZPL")
