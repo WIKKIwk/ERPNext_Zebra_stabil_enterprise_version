@@ -1,7 +1,7 @@
 # ZebraBridge v1
 
 ZebraBridge v1 is a .NET 8 service that writes EPC values to Zebra RFID labels over a local printer connection.
-It focuses on a stable encode pipeline with a lightweight built-in UI.
+It focuses on a stable encode pipeline with a lightweight local API.
 
 ## What Works Now
 
@@ -17,7 +17,7 @@ It focuses on a stable encode pipeline with a lightweight built-in UI.
 
 - ZPL transceive requires `ZEBRA_TRANSPORT=usb` and libusb support
 - ERP agent needs proper URL/auth configuration before it starts
-- UI is minimal and meant for local troubleshooting
+- No web UI is shipped (API-only service)
 
 ## Configuration
 
@@ -50,7 +50,7 @@ On Linux, run:
 The script downloads .NET 8 locally into `.dotnet/` if `dotnet` is not already installed
 (requires `curl` or `wget`).
 
-Then open the UI at `http://127.0.0.1:18000`.
+API base URL: `http://127.0.0.1:18000`.
 
 CLI (terminal):
 

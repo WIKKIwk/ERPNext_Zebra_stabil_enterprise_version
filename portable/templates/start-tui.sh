@@ -14,10 +14,6 @@ WEB_PORT="${ZEBRA_WEB_PORT:-${WEB_PORT_DEFAULT}}"
 export ZEBRA_WEB_HOST="$WEB_HOST"
 export ZEBRA_WEB_PORT="$WEB_PORT"
 
-if [[ "${ZEBRA_ENABLE_UI:-0}" != "1" ]]; then
-  export ZEBRA_DISABLE_UI=1
-fi
-
 if [[ -z "${ASPNETCORE_URLS:-}" ]]; then
   export ASPNETCORE_URLS="http://${WEB_HOST}:${WEB_PORT}"
 fi

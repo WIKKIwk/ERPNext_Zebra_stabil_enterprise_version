@@ -90,13 +90,6 @@ if (!string.IsNullOrWhiteSpace(apiToken))
     });
 }
 
-var disableUi = Environment.GetEnvironmentVariable("ZEBRA_DISABLE_UI");
-if (!IsTrue(disableUi))
-{
-    app.UseDefaultFiles();
-    app.UseStaticFiles();
-}
-
 app.MapGet("/api/v1/health", () => Results.Ok(new
 {
     ok = true,
