@@ -18,4 +18,9 @@ if [[ -z "${ASPNETCORE_URLS:-}" ]]; then
   export ASPNETCORE_URLS="http://${WEB_HOST}:${WEB_PORT}"
 fi
 
-exec "$ZEBRA_PORTABLE_APP_DIR/web/ZebraBridge.Web"
+WEB_APP_DIR="$ZEBRA_PORTABLE_APP_DIR/web"
+export ASPNETCORE_CONTENTROOT="$WEB_APP_DIR"
+export ASPNETCORE_WEBROOT="$WEB_APP_DIR/wwwroot"
+
+cd "$WEB_APP_DIR"
+exec ./ZebraBridge.Web

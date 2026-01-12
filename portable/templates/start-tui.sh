@@ -57,7 +57,14 @@ if [[ "${ZEBRA_TUI_SETUP:-1}" != "0" ]]; then
   "$ZEBRA_PORTABLE_APP_DIR/cli/ZebraBridge.Cli" setup "${SETUP_ARGS[@]}"
 fi
 
-"$ZEBRA_PORTABLE_APP_DIR/web/ZebraBridge.Web" >"$LOG_FILE" 2>&1 &
+WEB_APP_DIR="$ZEBRA_PORTABLE_APP_DIR/web"
+export ASPNETCORE_CONTENTROOT="$WEB_APP_DIR"
+export ASPNETCORE_WEBROOT="$WEB_APP_DIR/wwwroot"
+
+(
+  cd "$WEB_APP_DIR"
+  ./ZebraBridge.Web
+) >"$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 
 check_web_health() {

@@ -11,6 +11,10 @@ Terminal TUI (web + TUI):
 
   ./run.sh --tui
 
+If ERP auth warnings appear (401), run setup once:
+
+  ./run.sh --tui --setup --online --erp-url http://ERP_HOST --erp-token api_key:api_secret
+
 Install as service (auto-start on boot):
 
   sudo ./install.sh
