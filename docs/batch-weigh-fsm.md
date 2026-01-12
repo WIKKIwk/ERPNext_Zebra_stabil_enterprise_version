@@ -5,39 +5,44 @@
 Parameters (static):
 - T_SETTLE = 0.50s
 - T_CLEAR = 0.70s
-- EMPTY_THRESH = 0.20 * MIN_WEIGHT
+- N_MIN = 10
+- EMPTY_THRESH = noise-based (see formulas)
+- PLACEMENT_MIN = config placement_min_weight (see formulas)
 
 Definitions:
-- placement_id increments on rising edge (weight >= MIN_WEIGHT after EMPTY).
+- placement_id increments on rising edge (weight >= PLACEMENT_MIN after EMPTY).
 - print_sent is false on entering LOADING/SETTLING/LOCKED.
 - product switch applies only in WAIT_EMPTY; in other states it is queued as pending_product.
+- pending_product applies only on entering WAIT_EMPTY or on weight < EMPTY_THRESH for T_CLEAR events.
 - 1 placement = 1 label: event_id is created only on SETTLING -> LOCKED transition; no new event is created until POST_GUARD returns to WAIT_EMPTY.
 
 | CurrentState | Guard/Condition | Action | NextState |
 | --- | --- | --- | --- |
 | WAIT_EMPTY | batch_start(product_id, batch_id) | set active_batch, active_product, clear pending_product | WAIT_EMPTY |
 | WAIT_EMPTY | product_switch(product_id) | set pending_product | WAIT_EMPTY |
-| WAIT_EMPTY | pending_product != null | active_product = pending_product; pending_product = null | WAIT_EMPTY |
+| WAIT_EMPTY | on_enter | apply pending_product if set | WAIT_EMPTY |
 | WAIT_EMPTY | batch_stop | set pause_reason = BATCH_STOP | PAUSED |
-| WAIT_EMPTY | weight >= MIN_WEIGHT | placement_id++; print_sent = false; reset filters; start settle timer | LOADING |
+| WAIT_EMPTY | weight >= PLACEMENT_MIN | placement_id++; print_sent = false; reset filters; start settle timer | LOADING |
 | LOADING | batch_stop | set pause_reason = BATCH_STOP | PAUSED |
 | LOADING | product_switch(product_id) | set pending_product | LOADING |
-| LOADING | weight < EMPTY_THRESH for T_CLEAR | reset filters | WAIT_EMPTY |
-| LOADING | time_in_state >= T_SETTLE | enable stability window | SETTLING |
+| LOADING | weight < EMPTY_THRESH for T_CLEAR | reset filters; apply pending_product | WAIT_EMPTY |
+| LOADING | time_in_state >= T_SETTLE AND window.sample_count >= N_MIN | enable stability window | SETTLING |
 | SETTLING | batch_stop | set pause_reason = BATCH_STOP | PAUSED |
 | SETTLING | product_switch(product_id) | set pending_product | SETTLING |
-| SETTLING | weight < EMPTY_THRESH for T_CLEAR | reset filters | WAIT_EMPTY |
+| SETTLING | weight < EMPTY_THRESH for T_CLEAR | reset filters; apply pending_product | WAIT_EMPTY |
 | SETTLING | stable == true | lock_weight = mean(window); create event_id; print_sent = false | LOCKED |
 | LOCKED | batch_stop | set pause_reason = BATCH_STOP | PAUSED |
 | LOCKED | product_switch(product_id) | set pending_product | LOCKED |
-| LOCKED | abs(weight - lock_weight) > CHANGE_LIMIT | set pause_reason = REWEIGH_REQUIRED | PAUSED |
+| LOCKED | abs(weight - lock_weight) > CHANGE_LIMIT AND print_sent == false | reset filters | SETTLING |
+| LOCKED | abs(weight - lock_weight) > CHANGE_LIMIT AND print_sent == true | set pause_reason = REWEIGH_REQUIRED | PAUSED |
 | LOCKED | print_sent == false AND printer_ready == true | enqueue_print(event_id); print_sent = true | PRINTING |
 | LOCKED | print_sent == false AND printer_ready == false | set pause_reason = PRINTER_OFFLINE | PAUSED |
 | PRINTING | batch_stop | set pause_reason = BATCH_STOP | PAUSED |
 | PRINTING | abs(weight - lock_weight) > CHANGE_LIMIT | set pause_reason = REWEIGH_REQUIRED | PAUSED |
 | PRINTING | ack == RECEIVED | mark_job(RECEIVED) | PRINTING |
 | PRINTING | ack == COMPLETED | mark_job(COMPLETED); start post_guard timer | POST_GUARD |
-| PRINTING | ack_timeout | mark_job(RETRY); set pause_reason = PRINT_TIMEOUT | PAUSED |
+| PRINTING | send_timeout (no RECEIVED) | mark_job(RETRY) | PRINTING |
+| PRINTING | completed_timeout (RECEIVED but no COMPLETED) | set pause_reason = PRINT_TIMEOUT | PAUSED |
 | POST_GUARD | batch_stop | set pause_reason = BATCH_STOP | PAUSED |
 | POST_GUARD | weight < EMPTY_THRESH for T_CLEAR | mark_job(DONE); unlock; apply pending_product | WAIT_EMPTY |
 | POST_GUARD | weight >= EMPTY_THRESH | no-op | POST_GUARD |
@@ -51,8 +56,10 @@ Calibration (30s empty log):
 - sigma = 1.4826 * median(|x_i - median|)
 - res = smallest non-zero diff between consecutive samples
 - EPS = max(3 * sigma, 2 * res)
+- EPS_ALIGN = max(2 * EPS, 2 * sigma, 3 * res)
 - WINDOW = max(0.80s, 30 * median_dt)
-- MIN_WEIGHT = max(5 * sigma, 2 * res)
+- EMPTY_THRESH = max(3 * sigma, 2 * res)
+- PLACEMENT_MIN = max(config.placement_min_weight, 5 * sigma, 2 * res)
 - CHANGE_LIMIT = max(4 * sigma, 0.005 * lock_weight, 2 * res)
 - SLOPE_LIMIT = 2 * sigma / WINDOW
 
@@ -70,9 +77,9 @@ Jitter/latency spike handling:
 
 Stable boolean formula:
 - Let W be valid m_t samples within last WINDOW seconds.
-- stable = (mean(W) >= MIN_WEIGHT)
+- stable = (mean(W) >= PLACEMENT_MIN)
           AND (max(W) - min(W) <= EPS)
-          AND (abs(fast_t - slow_t) <= EPS)
+          AND (abs(fast_t - slow_t) <= EPS_ALIGN)
           AND (abs(slope) <= SLOPE_LIMIT)
 - slope = (slow_t - slow_{t-WINDOW}) / WINDOW
 
@@ -85,9 +92,9 @@ else:
   slow = ema(m, slow, alpha_s)
   window.add(m, t)
   if window.time_span >= WINDOW:
-    stable = mean(window) >= MIN_WEIGHT
+    stable = mean(window) >= PLACEMENT_MIN
           && range(window) <= EPS
-          && abs(fast - slow) <= EPS
+          && abs(fast - slow) <= EPS_ALIGN
           && abs(slope) <= SLOPE_LIMIT
 ```
 
@@ -104,6 +111,17 @@ CREATE TABLE batch_state (
   updated_at INTEGER NOT NULL
 );
 
+CREATE TABLE batch_runs (
+  run_id TEXT PRIMARY KEY,
+  device_id TEXT NOT NULL,
+  batch_id TEXT NOT NULL,
+  product_id TEXT NOT NULL,
+  started_at INTEGER NOT NULL,
+  stopped_at INTEGER,
+  stop_reason TEXT,
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE print_jobs (
   job_id TEXT PRIMARY KEY,
   event_id TEXT NOT NULL UNIQUE,
@@ -111,6 +129,7 @@ CREATE TABLE print_jobs (
   batch_id TEXT NOT NULL,
   seq INTEGER NOT NULL,
   status TEXT NOT NULL,
+  completion_mode TEXT NOT NULL DEFAULT 'STATUS_QUERY',
   payload_json TEXT NOT NULL,
   payload_hash TEXT NOT NULL,
   attempts INTEGER NOT NULL DEFAULT 0,
@@ -138,6 +157,21 @@ Restart proof:
 - If crash before COMMIT, transaction rolls back and next_seq is unchanged.
 - If crash after COMMIT, next_seq and job are persisted together.
 - Therefore sequence monotonic and gap-free per device_id.
+
+SQL diff:
+```sql
+ALTER TABLE print_jobs ADD COLUMN completion_mode TEXT NOT NULL DEFAULT 'STATUS_QUERY';
+CREATE TABLE batch_runs (
+  run_id TEXT PRIMARY KEY,
+  device_id TEXT NOT NULL,
+  batch_id TEXT NOT NULL,
+  product_id TEXT NOT NULL,
+  started_at INTEGER NOT NULL,
+  stopped_at INTEGER,
+  stop_reason TEXT,
+  created_at INTEGER NOT NULL
+);
+```
 
 ## 4) Outbox / Print Queue (Zebra)
 
@@ -176,11 +210,12 @@ if attempts >= max_attempts: UPDATE status='FAIL';
 
 Protocol:
 - ZPL over RAW transport (USB bulk or TCP 9100).
-- ACK requires printer transceive support for status queries.
+- COMPLETED probe is pluggable: STATUS_QUERY or SCAN_RECON.
 
 ACK meaning:
 - RECEIVED: payload accepted AND status query returns READY with no error flags.
-- COMPLETED: status query returns READY and job buffer empty AND RFID status OK.
+- COMPLETED: STATUS_QUERY returns READY and job buffer empty AND RFID status OK.
+- SCAN_RECON: COMPLETED is emitted only after scan reconciliation confirms the tag.
 
 RFID encode success/fail:
 - After send, issue RFID status query; parse response field RFID_OK=1.
@@ -189,7 +224,7 @@ RFID encode success/fail:
 Timeout + fallback:
 - RECEIVED timeout: 1500ms -> RETRY
 - COMPLETED timeout: 5000ms -> PAUSED with reason PRINT_TIMEOUT
-- If transceive not available, enforce FAIL and PAUSED immediately.
+- If transceive not available, set completion_mode=SCAN_RECON and require scan reconciliation.
 
 ## 6) ERPNext Edge API Contract
 
@@ -205,7 +240,7 @@ Common headers:
 - X-Device-Id: <device_id>
 
 Payloads:
-- batch_start: { device_id, batch_id, product_id, operator_id, started_at }
+- batch_start: { device_id, batch_id, product_id, operator_id, started_at, config:{ placement_min_weight } }
 - batch_stop:  { device_id, batch_id, reason, stopped_at }
 - device_status response: { device_id, batch_id, product_id, printer_status, last_event_seq }
 - event_report: { event_id, batch_id, seq, product_id, device_id, weight, unit, stable, locked_at, printed_at, printer_status }
