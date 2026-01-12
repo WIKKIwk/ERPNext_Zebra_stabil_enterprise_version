@@ -3,13 +3,13 @@ ZebraBridge v1 Portable (Linux)
 
 Quick start (web only):
 
-  ./start-web.sh
+  ./run.sh
 
 UI: http://127.0.0.1:18000
 
 Terminal TUI (web + TUI):
 
-  ./start-tui.sh
+  ./run.sh --tui
 
 Install as service (auto-start on boot):
 
@@ -26,4 +26,3 @@ Environment overrides:
 
 Architecture note:
 - This bundle is linux-x64 by default. For arm64, request the arm64 build.
-
