@@ -27,6 +27,7 @@ Environment overrides:
 - ZEBRA_WEB_PORT=18000
 - ZEBRA_ERP_URL, ZEBRA_ERP_AUTH, ZEBRA_ERP_DEVICE
 - ZEBRA_API_TOKEN (API auth)
+- ZEBRA_ENABLE_UI=1 (enable static UI)
 
 Architecture note:
 - This bundle is linux-x64 by default. For arm64, request the arm64 build.
