@@ -28,6 +28,7 @@ public sealed class ScaleReaderService : BackgroundService
     private long _lastPushTs;
     private double? _lastPushWeight;
     private bool? _lastPushStable;
+    private bool _pushAuthFailed;
 
     public ScaleReaderService(
         ScaleOptions options,
@@ -315,6 +316,10 @@ public sealed class ScaleReaderService : BackgroundService
         {
             return;
         }
+        if (_pushAuthFailed)
+        {
+            return;
+        }
 
         var baseUrl = NormalizeBaseUrl(_erpTarget?.BaseUrl ?? _erpOptions.BaseUrl);
         var auth = _erpTarget?.AuthHeader ?? NormalizeAuth(_erpOptions.Auth);
@@ -377,7 +382,15 @@ public sealed class ScaleReaderService : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Scale push failed.");
+            if (IsAuthFailure(ex))
+            {
+                _pushAuthFailed = true;
+                _logger.LogInformation("Scale push auth failed. Push disabled until restart.");
+            }
+            else
+            {
+                _logger.LogWarning(ex, "Scale push failed.");
+            }
         }
         finally
         {
@@ -414,6 +427,15 @@ public sealed class ScaleReaderService : BackgroundService
             throw new HttpRequestException(
                 $"Response status code does not indicate success: {(int)response.StatusCode} ({response.StatusCode}). {trimmed}");
         }
+    }
+
+    private static bool IsAuthFailure(Exception ex)
+    {
+        var msg = ex.Message ?? string.Empty;
+        return msg.Contains("authenticationerror", StringComparison.OrdinalIgnoreCase)
+               || msg.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)
+               || msg.Contains(" 401", StringComparison.OrdinalIgnoreCase)
+               || msg.Contains("401", StringComparison.OrdinalIgnoreCase);
     }
 
     private static ErpAgentRuntimeConfig? ResolveErpTarget(ErpAgentOptions options)

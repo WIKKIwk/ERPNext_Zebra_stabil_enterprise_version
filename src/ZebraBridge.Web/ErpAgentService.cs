@@ -46,7 +46,7 @@ public sealed class ErpAgentService : BackgroundService
         var configs = ErpAgentConfigLoader.Load(_options);
         if (configs.Count == 0)
         {
-            _logger.LogWarning("ERP agent disabled (no valid targets).");
+            _logger.LogInformation("ERP agent disabled (no valid targets).");
             return;
         }
 
@@ -64,6 +64,7 @@ public sealed class ErpAgentService : BackgroundService
         var nextPollAt = DateTimeOffset.UtcNow;
         var pollFailCount = 0;
         var lastWarnAt = DateTimeOffset.MinValue;
+        var authFailed = false;
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -77,7 +78,18 @@ public sealed class ErpAgentService : BackgroundService
                 }
                 catch (Exception ex)
                 {
-                    if (now - lastWarnAt > TimeSpan.FromSeconds(5))
+                    if (IsAuthFailure(ex))
+                    {
+                        authFailed = true;
+                        if (now - lastWarnAt > TimeSpan.FromSeconds(5))
+                        {
+                            lastWarnAt = now;
+                            _logger.LogInformation(
+                                "ERP auth failed ({Name}). Agent paused. Run setup with a valid token.",
+                                config.Name);
+                        }
+                    }
+                    else if (now - lastWarnAt > TimeSpan.FromSeconds(5))
                     {
                         lastWarnAt = now;
                         _logger.LogWarning("ERP register_agent failed ({Name}): {Message}", config.Name, ex.Message);
@@ -96,11 +108,25 @@ public sealed class ErpAgentService : BackgroundService
                 }
                 catch (Exception ex)
                 {
-                    pollFailCount = Math.Min(pollFailCount + 1, 10);
-                    if (now - lastWarnAt > TimeSpan.FromSeconds(5))
+                    if (IsAuthFailure(ex))
                     {
-                        lastWarnAt = now;
-                        _logger.LogWarning("ERP poll/reply failed ({Name}): {Message}", config.Name, ex.Message);
+                        authFailed = true;
+                        if (now - lastWarnAt > TimeSpan.FromSeconds(5))
+                        {
+                            lastWarnAt = now;
+                            _logger.LogInformation(
+                                "ERP auth failed ({Name}). Agent paused. Run setup with a valid token.",
+                                config.Name);
+                        }
+                    }
+                    else
+                    {
+                        pollFailCount = Math.Min(pollFailCount + 1, 10);
+                        if (now - lastWarnAt > TimeSpan.FromSeconds(5))
+                        {
+                            lastWarnAt = now;
+                            _logger.LogWarning("ERP poll/reply failed ({Name}): {Message}", config.Name, ex.Message);
+                        }
                     }
                 }
                 var backoff = pollFailCount == 0
@@ -108,6 +134,11 @@ public sealed class ErpAgentService : BackgroundService
                     : TimeSpan.FromMilliseconds(Math.Min(30000, pollInterval.TotalMilliseconds * Math.Pow(2, pollFailCount)));
                 var jitter = TimeSpan.FromMilliseconds(Random.Shared.Next(0, 250));
                 nextPollAt = now + backoff + jitter;
+            }
+
+            if (authFailed)
+            {
+                break;
             }
 
             var nextTick = nextHeartbeatAt < nextPollAt ? nextHeartbeatAt : nextPollAt;
@@ -124,6 +155,15 @@ public sealed class ErpAgentService : BackgroundService
                 }
             }
         }
+    }
+
+    private static bool IsAuthFailure(Exception ex)
+    {
+        var msg = ex.Message ?? string.Empty;
+        return msg.Contains("authenticationerror", StringComparison.OrdinalIgnoreCase)
+               || msg.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)
+               || msg.Contains(" 401", StringComparison.OrdinalIgnoreCase)
+               || msg.Contains("401", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task RegisterAsync(
