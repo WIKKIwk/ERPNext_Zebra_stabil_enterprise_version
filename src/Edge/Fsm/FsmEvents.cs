@@ -25,6 +25,8 @@ public sealed record PrinterCompletedEvent(string EventId, double TimestampSecon
 
 public sealed record ScanReconEvent(string EventId, double TimestampSeconds) : FsmEvent;
 
+public sealed record ScanReconRequiredEvent(string EventId, double TimestampSeconds) : FsmEvent;
+
 public sealed record PauseEvent(PauseReason Reason, double TimestampSeconds) : FsmEvent;
 
 public sealed record ReasonClearedEvent(PauseReason Reason, double TimestampSeconds) : FsmEvent;
