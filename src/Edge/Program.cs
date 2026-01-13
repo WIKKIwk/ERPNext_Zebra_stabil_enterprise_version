@@ -67,7 +67,7 @@ public static class Program
         var erpSignal = new SemaphoreSlim(0);
 
         var printWorker = new PrintWorker(printOutbox, printer, controlEnqueue, printSignal);
-        var erpWorker = new ErpWorker(erpOutbox, new NullErpClient(), erpSignal);
+        var erpWorker = new ErpWorker(erpOutbox, printOutbox, new NullErpClient(), erpSignal);
 
         var scaleAdapter = new NullScaleAdapter();
         var scaleReadLoop = new ScaleReadLoop(scaleAdapter, fsmLoop, () => false);
