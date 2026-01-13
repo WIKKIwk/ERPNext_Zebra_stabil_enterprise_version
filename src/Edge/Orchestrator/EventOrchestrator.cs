@@ -94,6 +94,7 @@ public sealed class EventOrchestrator
                 payloadJson,
                 payloadHash,
                 0,
+                nowMs,
                 null);
 
             var printOk = await _printOutbox.TryInsertAsync(connection, null, printJob, nowMs);
