@@ -12,6 +12,7 @@ public sealed record ErpJob(
     string PayloadJson,
     string PayloadHash,
     int Attempts,
+    int WaitPrintChecks,
     long CreatedAtMs,
     long? NextRetryAtMs);
 
@@ -54,6 +55,7 @@ CREATE TABLE IF NOT EXISTS erp_outbox (
   payload_json TEXT NOT NULL,
   payload_hash TEXT NOT NULL,
   attempts INTEGER NOT NULL DEFAULT 0,
+  wait_print_checks INTEGER NOT NULL DEFAULT 0,
   next_retry_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
@@ -64,6 +66,8 @@ CREATE TABLE IF NOT EXISTS erp_outbox (
 CREATE INDEX IF NOT EXISTS idx_erp_status_next ON erp_outbox(status, next_retry_at);
 ";
         command.ExecuteNonQuery();
+
+        EnsureColumn(connection, "wait_print_checks", "INTEGER NOT NULL DEFAULT 0");
     }
 
     public async Task<bool> TryInsertAsync(
@@ -79,9 +83,9 @@ CREATE INDEX IF NOT EXISTS idx_erp_status_next ON erp_outbox(status, next_retry_
         }
         command.CommandText = @"
 INSERT INTO erp_outbox
-(job_id, event_id, device_id, batch_id, seq, status, payload_json, payload_hash, attempts, created_at, updated_at)
+(job_id, event_id, device_id, batch_id, seq, status, payload_json, payload_hash, attempts, wait_print_checks, created_at, updated_at)
 VALUES
-($job_id, $event_id, $device_id, $batch_id, $seq, $status, $payload_json, $payload_hash, $attempts, $created_at, $updated_at);
+($job_id, $event_id, $device_id, $batch_id, $seq, $status, $payload_json, $payload_hash, $attempts, $wait_print_checks, $created_at, $updated_at);
 ";
         command.Parameters.AddWithValue("$job_id", job.JobId);
         command.Parameters.AddWithValue("$event_id", job.EventId);
@@ -92,6 +96,7 @@ VALUES
         command.Parameters.AddWithValue("$payload_json", job.PayloadJson);
         command.Parameters.AddWithValue("$payload_hash", job.PayloadHash);
         command.Parameters.AddWithValue("$attempts", job.Attempts);
+        command.Parameters.AddWithValue("$wait_print_checks", job.WaitPrintChecks);
         command.Parameters.AddWithValue("$created_at", nowMs);
         command.Parameters.AddWithValue("$updated_at", nowMs);
         try
@@ -113,7 +118,7 @@ VALUES
             using var connection = OpenConnection();
             using var command = connection.CreateCommand();
             command.CommandText = @"
-SELECT job_id, event_id, device_id, batch_id, seq, status, payload_json, payload_hash, attempts, created_at, next_retry_at
+SELECT job_id, event_id, device_id, batch_id, seq, status, payload_json, payload_hash, attempts, wait_print_checks, created_at, next_retry_at
 FROM erp_outbox
 WHERE (status = $new OR status = $retry) AND (next_retry_at IS NULL OR next_retry_at <= $now)
 ORDER BY created_at
@@ -128,8 +133,9 @@ LIMIT 1;
                 return null;
             }
 
-            var createdAt = reader.GetInt64(9);
-            var nextRetry = reader.IsDBNull(10) ? (long?)null : reader.GetInt64(10);
+            var waitChecks = reader.GetInt32(9);
+            var createdAt = reader.GetInt64(10);
+            var nextRetry = reader.IsDBNull(11) ? (long?)null : reader.GetInt64(11);
             return new ErpJob(
                 reader.GetString(0),
                 reader.GetString(1),
@@ -140,6 +146,7 @@ LIMIT 1;
                 reader.GetString(6),
                 reader.GetString(7),
                 reader.GetInt32(8),
+                waitChecks,
                 createdAt,
                 nextRetry);
         }
@@ -202,6 +209,77 @@ WHERE event_id = $event_id;
         }
     }
 
+    public async Task MarkWaitPrintAsync(string eventId, long nextRetryAtMs, long nowMs)
+    {
+        await _mutex.WaitAsync();
+        try
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+UPDATE erp_outbox
+SET status = $status,
+    wait_print_checks = wait_print_checks + 1,
+    next_retry_at = $next_retry_at,
+    last_error = $last_error,
+    updated_at = $updated_at
+WHERE event_id = $event_id;
+";
+            command.Parameters.AddWithValue("$status", ErpJobStatus.Retry);
+            command.Parameters.AddWithValue("$next_retry_at", nextRetryAtMs);
+            command.Parameters.AddWithValue("$last_error", "WAIT_PRINT");
+            command.Parameters.AddWithValue("$updated_at", nowMs);
+            command.Parameters.AddWithValue("$event_id", eventId);
+            await command.ExecuteNonQueryAsync();
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+    }
+
+    public async Task<ErpJob?> GetJobAsync(string eventId)
+    {
+        await _mutex.WaitAsync();
+        try
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+SELECT job_id, event_id, device_id, batch_id, seq, status, payload_json, payload_hash, attempts, wait_print_checks, created_at, next_retry_at
+FROM erp_outbox
+WHERE event_id = $event_id;
+";
+            command.Parameters.AddWithValue("$event_id", eventId);
+            using var reader = await command.ExecuteReaderAsync();
+            if (!reader.Read())
+            {
+                return null;
+            }
+
+            var waitChecks = reader.GetInt32(9);
+            var createdAt = reader.GetInt64(10);
+            var nextRetry = reader.IsDBNull(11) ? (long?)null : reader.GetInt64(11);
+            return new ErpJob(
+                reader.GetString(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetString(3),
+                reader.GetInt32(4),
+                reader.GetString(5),
+                reader.GetString(6),
+                reader.GetString(7),
+                reader.GetInt32(8),
+                waitChecks,
+                createdAt,
+                nextRetry);
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+    }
+
     public async Task MarkNeedsOperatorAsync(string eventId, string error, long nowMs)
     {
         await _mutex.WaitAsync();
@@ -249,5 +327,23 @@ WHERE event_id = $event_id;
         var connection = new SqliteConnection(_connectionString);
         connection.Open();
         return connection;
+    }
+
+    private static void EnsureColumn(SqliteConnection connection, string columnName, string definition)
+    {
+        using var check = connection.CreateCommand();
+        check.CommandText = "PRAGMA table_info(erp_outbox);";
+        using var reader = check.ExecuteReader();
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+        }
+
+        using var alter = connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE erp_outbox ADD COLUMN {columnName} {definition};";
+        alter.ExecuteNonQuery();
     }
 }
