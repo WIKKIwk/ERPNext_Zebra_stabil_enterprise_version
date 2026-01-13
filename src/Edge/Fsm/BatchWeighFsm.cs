@@ -152,6 +152,12 @@ public sealed class BatchWeighFsm
             return;
         }
 
+        if (State != FsmState.ScanReconRequired)
+        {
+            return;
+        }
+
+        EmitPrintCompleted(ev.TimestampSeconds);
         EnterState(FsmState.PostGuard, ev.TimestampSeconds);
     }
 
@@ -162,9 +168,9 @@ public sealed class BatchWeighFsm
             return;
         }
 
-        if (State != FsmState.Printing)
+        if (State == FsmState.Printing || State == FsmState.Locked || State == FsmState.PostGuard)
         {
-            EnterState(FsmState.Printing, ev.TimestampSeconds, reenter: true);
+            EnterState(FsmState.ScanReconRequired, ev.TimestampSeconds);
         }
     }
 
@@ -248,6 +254,8 @@ public sealed class BatchWeighFsm
             case FsmState.Printing:
                 HandlePrinting(sample.MonoTimeSeconds, sample.Value);
                 break;
+            case FsmState.ScanReconRequired:
+                break;
             case FsmState.PostGuard:
                 if (IsBelowEmptyForClear(sample.MonoTimeSeconds))
                 {
@@ -325,6 +333,16 @@ public sealed class BatchWeighFsm
             ActiveProductId,
             _lockWeight,
             now));
+    }
+
+    private void EmitPrintCompleted(double now)
+    {
+        if (_currentEventId == null)
+        {
+            return;
+        }
+
+        _actions.Add(new PrintCompletedAction(_currentEventId, now));
     }
 
     private void EnterState(FsmState state, double now, bool reenter = false)
