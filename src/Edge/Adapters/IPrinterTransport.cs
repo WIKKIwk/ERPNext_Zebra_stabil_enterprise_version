@@ -5,7 +5,10 @@ public sealed record PrinterStatus(
     bool Busy,
     bool JobBufferEmpty,
     bool RfidOk,
-    bool RfidUnknown);
+    bool RfidUnknown,
+    bool Paused,
+    bool Error,
+    bool Offline);
 
 public interface IPrinterTransport
 {
