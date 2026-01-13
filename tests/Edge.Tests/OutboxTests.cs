@@ -86,4 +86,61 @@ public sealed class OutboxTests
 
         Assert.Equal(1, count);
     }
+
+    [Fact]
+    public async Task WaitPrintChecksMigrationAddsColumn()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"outbox-{Guid.NewGuid():N}.db");
+        using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = dbPath }.ToString()))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+CREATE TABLE erp_outbox (
+  job_id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL UNIQUE,
+  device_id TEXT NOT NULL,
+  batch_id TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_retry_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  last_error TEXT,
+  UNIQUE(batch_id, seq)
+);
+";
+            command.ExecuteNonQuery();
+
+            using var insert = connection.CreateCommand();
+            insert.CommandText = @"
+INSERT INTO erp_outbox
+(job_id, event_id, device_id, batch_id, seq, status, payload_json, payload_hash, attempts, created_at, updated_at)
+VALUES
+($job_id, $event_id, $device_id, $batch_id, $seq, $status, $payload_json, $payload_hash, $attempts, $created_at, $updated_at);
+";
+            insert.Parameters.AddWithValue("$job_id", Guid.NewGuid().ToString("N"));
+            insert.Parameters.AddWithValue("$event_id", "event-1");
+            insert.Parameters.AddWithValue("$device_id", "dev-1");
+            insert.Parameters.AddWithValue("$batch_id", "batch-1");
+            insert.Parameters.AddWithValue("$seq", 1);
+            insert.Parameters.AddWithValue("$status", ErpJobStatus.New);
+            insert.Parameters.AddWithValue("$payload_json", "{}");
+            insert.Parameters.AddWithValue("$payload_hash", "hash");
+            insert.Parameters.AddWithValue("$attempts", 0);
+            insert.Parameters.AddWithValue("$created_at", 0);
+            insert.Parameters.AddWithValue("$updated_at", 0);
+            insert.ExecuteNonQuery();
+        }
+
+        var erpStore = new ErpOutboxStore(dbPath);
+        erpStore.Initialize();
+
+        var job = await erpStore.GetJobAsync("event-1");
+        Assert.NotNull(job);
+        Assert.Equal(0, job?.WaitPrintChecks ?? -1);
+    }
 }
