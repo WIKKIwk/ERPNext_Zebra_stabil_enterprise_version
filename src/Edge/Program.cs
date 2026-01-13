@@ -332,7 +332,7 @@ public static class Program
 
         public Task<PrinterStatus> ProbeStatusAsync(CancellationToken cancellationToken)
         {
-            return Task.FromResult(new PrinterStatus(false, false, false, false, true));
+            return Task.FromResult(new PrinterStatus(false, false, false, false, true, false, false, true));
         }
     }
 
