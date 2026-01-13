@@ -16,6 +16,8 @@ public enum PauseReason
     None,
     BatchStop,
     PrinterOffline,
+    PrinterPaused,
+    PrinterError,
     PrintTimeout,
     ReweighRequired,
     ErpBackpressure,
