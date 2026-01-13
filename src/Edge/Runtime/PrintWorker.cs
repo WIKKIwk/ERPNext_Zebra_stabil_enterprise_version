@@ -54,7 +54,16 @@ public sealed class PrintWorker
             }
 
             var received = await ProbeReceivedAsync(job.EventId, cancellationToken);
-            if (!received)
+            if (received.Outcome == ReceivedOutcome.Paused)
+            {
+                if (received.PauseReason is not null)
+                {
+                    _controlEnqueue(new PauseEvent(received.PauseReason.Value, NowSeconds()));
+                }
+                continue;
+            }
+
+            if (received.Outcome == ReceivedOutcome.Timeout)
             {
                 var nextRetry = NowMs() + BackoffMs(job.Attempts + 1);
                 await _printOutbox.MarkRetryAsync(job.EventId, nextRetry, "SEND_TIMEOUT", NowMs());
@@ -65,7 +74,7 @@ public sealed class PrintWorker
             await _printOutbox.MarkStatusAsync(job.EventId, PrintJobStatus.Received, NowMs());
 
             var completed = await ProbeCompletedAsync(job.EventId, cancellationToken);
-            if (completed == CompletionOutcome.Completed)
+            if (completed.Outcome == CompletionOutcome.Completed)
             {
                 _controlEnqueue(new PrinterCompletedEvent(job.EventId, NowSeconds()));
                 await _printOutbox.MarkStatusAsync(job.EventId, PrintJobStatus.Completed, NowMs());
@@ -73,34 +82,49 @@ public sealed class PrintWorker
                 continue;
             }
 
-            if (completed == CompletionOutcome.Timeout)
+            if (completed.Outcome == CompletionOutcome.Timeout)
             {
                 _controlEnqueue(new PauseEvent(PauseReason.PrintTimeout, NowSeconds()));
+            }
+
+            if (completed.Outcome == CompletionOutcome.Paused && completed.PauseReason is not null)
+            {
+                _controlEnqueue(new PauseEvent(completed.PauseReason.Value, NowSeconds()));
             }
         }
     }
 
-    private async Task<bool> ProbeReceivedAsync(string eventId, CancellationToken cancellationToken)
+    private async Task<ReceivedProbeResult> ProbeReceivedAsync(string eventId, CancellationToken cancellationToken)
     {
         for (var attempt = 0; attempt < 3; attempt++)
         {
             var status = await _transport.ProbeStatusAsync(cancellationToken);
+            var pause = GetPauseReason(status);
+            if (pause is not null)
+            {
+                return new ReceivedProbeResult(ReceivedOutcome.Paused, pause);
+            }
             if (status.Ready && !status.Busy)
             {
-                return true;
+                return new ReceivedProbeResult(ReceivedOutcome.Received, null);
             }
             await Task.Delay(200, cancellationToken);
         }
 
-        return false;
+        return new ReceivedProbeResult(ReceivedOutcome.Timeout, null);
     }
 
-    private async Task<CompletionOutcome> ProbeCompletedAsync(string eventId, CancellationToken cancellationToken)
+    private async Task<CompletionProbeResult> ProbeCompletedAsync(string eventId, CancellationToken cancellationToken)
     {
         var start = NowMs();
         while (NowMs() - start <= 5000)
         {
             var status = await _transport.ProbeStatusAsync(cancellationToken);
+            var pause = GetPauseReason(status);
+            if (pause is not null)
+            {
+                return new CompletionProbeResult(CompletionOutcome.Paused, pause);
+            }
             if (status.Busy)
             {
                 await Task.Delay(250, cancellationToken);
@@ -111,20 +135,37 @@ public sealed class PrintWorker
             {
                 if (status.RfidOk)
                 {
-                    return CompletionOutcome.Completed;
+                    return new CompletionProbeResult(CompletionOutcome.Completed, null);
                 }
 
                 if (status.RfidUnknown)
                 {
                     await _printOutbox.UpdateCompletionModeAsync(eventId, "SCAN_RECON", NowMs());
-                    return CompletionOutcome.ScanReconFallback;
+                    return new CompletionProbeResult(CompletionOutcome.ScanReconFallback, null);
                 }
             }
 
             await Task.Delay(250, cancellationToken);
         }
 
-        return CompletionOutcome.Timeout;
+        return new CompletionProbeResult(CompletionOutcome.Timeout, null);
+    }
+
+    private static PauseReason? GetPauseReason(PrinterStatus status)
+    {
+        if (status.Offline)
+        {
+            return PauseReason.PrinterOffline;
+        }
+        if (status.Error)
+        {
+            return PauseReason.PrinterError;
+        }
+        if (status.Paused)
+        {
+            return PauseReason.PrinterPaused;
+        }
+        return null;
     }
 
     private static long NowMs()
@@ -148,5 +189,16 @@ public enum CompletionOutcome
 {
     Completed,
     ScanReconFallback,
-    Timeout
+    Timeout,
+    Paused
 }
+
+public enum ReceivedOutcome
+{
+    Received,
+    Timeout,
+    Paused
+}
+
+public sealed record ReceivedProbeResult(ReceivedOutcome Outcome, PauseReason? PauseReason);
+public sealed record CompletionProbeResult(CompletionOutcome Outcome, PauseReason? PauseReason);
