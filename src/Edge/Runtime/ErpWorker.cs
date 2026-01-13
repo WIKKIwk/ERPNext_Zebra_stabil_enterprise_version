@@ -8,6 +8,9 @@ public sealed class ErpWorker
     private readonly PrintOutboxStore _printOutbox;
     private readonly IErpClient _client;
     private readonly SemaphoreSlim _signal;
+    private const long WaitPrintBaseMs = 2000;
+    private const long WaitPrintMaxMs = 30000;
+    private const long MaxWaitPrintAgeMs = 30 * 60 * 1000;
 
     public ErpWorker(ErpOutboxStore erpOutbox, PrintOutboxStore printOutbox, IErpClient client, SemaphoreSlim signal)
     {
@@ -32,7 +35,14 @@ public sealed class ErpWorker
             var printStatus = await _printOutbox.GetStatusAsync(job.EventId);
             if (!IsPrintCompleted(printStatus))
             {
-                var nextRetry = NowMs() + 500;
+                if (nowMs - job.CreatedAtMs >= MaxWaitPrintAgeMs)
+                {
+                    await _erpOutbox.MarkNeedsOperatorAsync(job.EventId, "WAIT_PRINT_TIMEOUT", NowMs());
+                    continue;
+                }
+
+                var backoff = WaitPrintBackoffMs(job.Attempts);
+                var nextRetry = NowMs() + backoff;
                 await _erpOutbox.MarkRetryAsync(job.EventId, nextRetry, "WAIT_PRINT", NowMs());
                 continue;
             }
@@ -52,6 +62,12 @@ public sealed class ErpWorker
     private static bool IsPrintCompleted(string? status)
     {
         return status == PrintJobStatus.Completed || status == PrintJobStatus.Done;
+    }
+
+    private static long WaitPrintBackoffMs(int attempts)
+    {
+        var backoff = (long)(WaitPrintBaseMs * Math.Pow(2, Math.Max(0, attempts)));
+        return Math.Min(WaitPrintMaxMs, backoff);
     }
 
     private static long NowMs()
