@@ -10,4 +10,6 @@ public sealed record PrintRequestedAction(
     double Weight,
     double TimestampSeconds) : FsmAction;
 
+public sealed record PrintCompletedAction(string EventId, double TimestampSeconds) : FsmAction;
+
 public sealed record PauseAction(PauseReason Reason, double TimestampSeconds) : FsmAction;
