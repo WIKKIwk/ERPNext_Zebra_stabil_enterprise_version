@@ -44,6 +44,14 @@ public sealed class EventOrchestrator
 
     public async Task HandleActionAsync(FsmAction action, CancellationToken cancellationToken)
     {
+        if (action is PrintCompletedAction completed)
+        {
+            var nowMs = ToMs(completed.TimestampSeconds);
+            await _printOutbox.MarkStatusAsync(completed.EventId, PrintJobStatus.Completed, nowMs);
+            await _printOutbox.MarkStatusAsync(completed.EventId, PrintJobStatus.Done, nowMs);
+            return;
+        }
+
         if (action is not PrintRequestedAction print)
         {
             return;
