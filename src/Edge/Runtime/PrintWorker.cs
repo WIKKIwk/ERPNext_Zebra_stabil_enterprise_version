@@ -87,6 +87,11 @@ public sealed class PrintWorker
                 _controlEnqueue(new PauseEvent(PauseReason.PrintTimeout, NowSeconds()));
             }
 
+            if (completed.Outcome == CompletionOutcome.ScanReconFallback)
+            {
+                _controlEnqueue(new ScanReconEvent(job.EventId, NowSeconds()));
+            }
+
             if (completed.Outcome == CompletionOutcome.Paused && completed.PauseReason is not null)
             {
                 _controlEnqueue(new PauseEvent(completed.PauseReason.Value, NowSeconds()));
