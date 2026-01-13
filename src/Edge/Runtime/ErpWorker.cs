@@ -5,12 +5,14 @@ namespace ZebraBridge.Edge.Runtime;
 public sealed class ErpWorker
 {
     private readonly ErpOutboxStore _erpOutbox;
+    private readonly PrintOutboxStore _printOutbox;
     private readonly IErpClient _client;
     private readonly SemaphoreSlim _signal;
 
-    public ErpWorker(ErpOutboxStore erpOutbox, IErpClient client, SemaphoreSlim signal)
+    public ErpWorker(ErpOutboxStore erpOutbox, PrintOutboxStore printOutbox, IErpClient client, SemaphoreSlim signal)
     {
         _erpOutbox = erpOutbox;
+        _printOutbox = printOutbox;
         _client = client;
         _signal = signal;
     }
@@ -27,6 +29,14 @@ public sealed class ErpWorker
                 continue;
             }
 
+            var printStatus = await _printOutbox.GetStatusAsync(job.EventId);
+            if (!IsPrintCompleted(printStatus))
+            {
+                var nextRetry = NowMs() + 500;
+                await _erpOutbox.MarkRetryAsync(job.EventId, nextRetry, "WAIT_PRINT", NowMs());
+                continue;
+            }
+
             var result = await _client.PostEventAsync(job.PayloadJson, cancellationToken);
             if (result == ErpResult.Ok || result == ErpResult.Conflict)
             {
@@ -37,6 +47,11 @@ public sealed class ErpWorker
             var nextRetry = NowMs() + BackoffMs(job.Attempts + 1);
             await _erpOutbox.MarkRetryAsync(job.EventId, nextRetry, result.ToString(), NowMs());
         }
+    }
+
+    private static bool IsPrintCompleted(string? status)
+    {
+        return status == PrintJobStatus.Completed || status == PrintJobStatus.Done;
     }
 
     private static long NowMs()
