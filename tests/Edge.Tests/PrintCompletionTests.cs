@@ -104,6 +104,44 @@ public sealed class PrintCompletionTests
         Assert.Equal(1, erpClient.CallCount);
     }
 
+    [Fact]
+    public async Task RfidUnknownTriggersScanRecon()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"edge-{Guid.NewGuid():N}.db");
+        var printStore = new PrintOutboxStore(dbPath);
+        var erpStore = new ErpOutboxStore(dbPath);
+        printStore.Initialize();
+        erpStore.Initialize();
+
+        var eventId = Guid.NewGuid().ToString("N");
+        await SeedJobsAsync(dbPath, printStore, erpStore, eventId);
+
+        var controlEvents = new List<FsmEvent>();
+        var printer = new FakePrinterTransport(new[]
+        {
+            Status(ready: true),
+            Status(ready: true, jobBufferEmpty: true, rfidUnknown: true)
+        });
+
+        var printSignal = new SemaphoreSlim(0);
+        var printWorker = new PrintWorker(printStore, printer, ev => controlEvents.Add(ev), printSignal);
+
+        using var cts = new CancellationTokenSource();
+        var printTask = printWorker.RunAsync(cts.Token);
+        printSignal.Release();
+
+        await WaitForConditionAsync(() => Task.FromResult(controlEvents.Any(ev => ev is ScanReconEvent)), timeoutMs: 500);
+
+        cts.Cancel();
+        await IgnoreCancellationAsync(printTask);
+
+        var status = await printStore.GetStatusAsync(eventId);
+        Assert.NotEqual(PrintJobStatus.Completed, status);
+        Assert.NotEqual(PrintJobStatus.Done, status);
+        Assert.Contains(controlEvents, ev => ev is ScanReconEvent);
+        Assert.DoesNotContain(controlEvents, ev => ev is PrinterCompletedEvent);
+    }
+
     private static async Task SeedJobsAsync(
         string dbPath,
         PrintOutboxStore printStore,
@@ -140,6 +178,7 @@ public sealed class PrintCompletionTests
             "{}",
             "hash",
             0,
+            nowMs,
             null);
 
         await printStore.TryInsertAsync(connection, null, printJob, nowMs);
