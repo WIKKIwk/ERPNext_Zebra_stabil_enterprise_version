@@ -12,6 +12,7 @@ public sealed record ErpJob(
     string PayloadJson,
     string PayloadHash,
     int Attempts,
+    long CreatedAtMs,
     long? NextRetryAtMs);
 
 public static class ErpJobStatus
@@ -21,6 +22,7 @@ public static class ErpJobStatus
     public const string Done = "DONE";
     public const string Retry = "RETRY";
     public const string Fail = "FAIL";
+    public const string NeedsOperator = "NEEDS_OPERATOR";
 }
 
 public sealed class ErpOutboxStore
@@ -111,7 +113,7 @@ VALUES
             using var connection = OpenConnection();
             using var command = connection.CreateCommand();
             command.CommandText = @"
-SELECT job_id, event_id, device_id, batch_id, seq, status, payload_json, payload_hash, attempts, next_retry_at
+SELECT job_id, event_id, device_id, batch_id, seq, status, payload_json, payload_hash, attempts, created_at, next_retry_at
 FROM erp_outbox
 WHERE (status = $new OR status = $retry) AND (next_retry_at IS NULL OR next_retry_at <= $now)
 ORDER BY created_at
@@ -126,7 +128,8 @@ LIMIT 1;
                 return null;
             }
 
-            var nextRetry = reader.IsDBNull(9) ? (long?)null : reader.GetInt64(9);
+            var createdAt = reader.GetInt64(9);
+            var nextRetry = reader.IsDBNull(10) ? (long?)null : reader.GetInt64(10);
             return new ErpJob(
                 reader.GetString(0),
                 reader.GetString(1),
@@ -137,6 +140,7 @@ LIMIT 1;
                 reader.GetString(6),
                 reader.GetString(7),
                 reader.GetInt32(8),
+                createdAt,
                 nextRetry);
         }
         finally
@@ -179,6 +183,7 @@ WHERE event_id = $event_id;
             command.CommandText = @"
 UPDATE erp_outbox
 SET status = $status,
+    attempts = attempts + 1,
     next_retry_at = $next_retry_at,
     last_error = $last_error,
     updated_at = $updated_at
@@ -186,6 +191,32 @@ WHERE event_id = $event_id;
 ";
             command.Parameters.AddWithValue("$status", ErpJobStatus.Retry);
             command.Parameters.AddWithValue("$next_retry_at", nextRetryAtMs);
+            command.Parameters.AddWithValue("$last_error", error);
+            command.Parameters.AddWithValue("$updated_at", nowMs);
+            command.Parameters.AddWithValue("$event_id", eventId);
+            await command.ExecuteNonQueryAsync();
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+    }
+
+    public async Task MarkNeedsOperatorAsync(string eventId, string error, long nowMs)
+    {
+        await _mutex.WaitAsync();
+        try
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+UPDATE erp_outbox
+SET status = $status,
+    last_error = $last_error,
+    updated_at = $updated_at
+WHERE event_id = $event_id;
+";
+            command.Parameters.AddWithValue("$status", ErpJobStatus.NeedsOperator);
             command.Parameters.AddWithValue("$last_error", error);
             command.Parameters.AddWithValue("$updated_at", nowMs);
             command.Parameters.AddWithValue("$event_id", eventId);
