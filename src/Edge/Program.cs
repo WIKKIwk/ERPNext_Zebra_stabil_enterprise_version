@@ -268,6 +268,10 @@ public static class Program
         };
         var (regStatus, regJson) = await PostAsync("rfidenter.edge_event_report", regressionPayload);
         Console.WriteLine($"seq_regression status={regStatus} body={regJson?.RootElement}");
+        if (regStatus != 409)
+        {
+            Console.WriteLine($"seq_regression expected=409 got={regStatus}");
+        }
 
         var statusPayload = new
         {
