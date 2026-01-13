@@ -89,7 +89,7 @@ public sealed class PrintWorker
 
             if (completed.Outcome == CompletionOutcome.ScanReconFallback)
             {
-                _controlEnqueue(new ScanReconEvent(job.EventId, NowSeconds()));
+                _controlEnqueue(new ScanReconRequiredEvent(job.EventId, NowSeconds()));
             }
 
             if (completed.Outcome == CompletionOutcome.Paused && completed.PauseReason is not null)
