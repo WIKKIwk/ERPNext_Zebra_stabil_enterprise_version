@@ -130,7 +130,7 @@ public sealed class PrintCompletionTests
         var printTask = printWorker.RunAsync(cts.Token);
         printSignal.Release();
 
-        await WaitForConditionAsync(() => Task.FromResult(controlEvents.Any(ev => ev is ScanReconEvent)), timeoutMs: 500);
+        await WaitForConditionAsync(() => Task.FromResult(controlEvents.Any(ev => ev is ScanReconRequiredEvent)), timeoutMs: 500);
 
         cts.Cancel();
         await IgnoreCancellationAsync(printTask);
@@ -138,8 +138,44 @@ public sealed class PrintCompletionTests
         var status = await printStore.GetStatusAsync(eventId);
         Assert.NotEqual(PrintJobStatus.Completed, status);
         Assert.NotEqual(PrintJobStatus.Done, status);
-        Assert.Contains(controlEvents, ev => ev is ScanReconEvent);
+        Assert.Contains(controlEvents, ev => ev is ScanReconRequiredEvent);
         Assert.DoesNotContain(controlEvents, ev => ev is PrinterCompletedEvent);
+    }
+
+    [Fact]
+    public async Task WaitPrintDoesNotIncrementAttempts()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"edge-{Guid.NewGuid():N}.db");
+        var printStore = new PrintOutboxStore(dbPath);
+        var erpStore = new ErpOutboxStore(dbPath);
+        printStore.Initialize();
+        erpStore.Initialize();
+
+        var eventId = Guid.NewGuid().ToString("N");
+        await SeedJobsAsync(dbPath, printStore, erpStore, eventId);
+
+        var erpClient = new FakeErpClient();
+        var erpSignal = new SemaphoreSlim(0);
+        var erpWorker = new ErpWorker(erpStore, printStore, erpClient, erpSignal);
+
+        using var cts = new CancellationTokenSource();
+        var erpTask = erpWorker.RunAsync(cts.Token);
+        erpSignal.Release();
+
+        await WaitForConditionAsync(async () =>
+        {
+            var job = await erpStore.GetJobAsync(eventId);
+            return job is not null && job.WaitPrintChecks > 0;
+        }, timeoutMs: 500);
+
+        cts.Cancel();
+        await IgnoreCancellationAsync(erpTask);
+
+        var updated = await erpStore.GetJobAsync(eventId);
+        Assert.NotNull(updated);
+        Assert.Equal(0, updated?.Attempts ?? -1);
+        Assert.True(updated?.WaitPrintChecks > 0);
+        Assert.Equal(0, erpClient.CallCount);
     }
 
     private static async Task SeedJobsAsync(
@@ -177,6 +213,7 @@ public sealed class PrintCompletionTests
             ErpJobStatus.New,
             "{}",
             "hash",
+            0,
             0,
             nowMs,
             null);
