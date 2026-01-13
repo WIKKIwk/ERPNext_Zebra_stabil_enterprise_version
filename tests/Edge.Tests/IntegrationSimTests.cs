@@ -2,6 +2,7 @@ using ZebraBridge.Edge;
 using ZebraBridge.Edge.Fsm;
 using ZebraBridge.Edge.Orchestrator;
 using ZebraBridge.Edge.Outbox;
+using ZebraBridge.Edge.Runtime;
 using ZebraBridge.Edge.Stability;
 using Xunit;
 
