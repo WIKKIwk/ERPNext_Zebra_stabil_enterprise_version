@@ -203,6 +203,24 @@ WHERE event_id = $event_id;
         }
     }
 
+    public async Task<string?> GetStatusAsync(string eventId)
+    {
+        await _mutex.WaitAsync();
+        try
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT status FROM print_outbox WHERE event_id = $event_id;";
+            command.Parameters.AddWithValue("$event_id", eventId);
+            var result = await command.ExecuteScalarAsync();
+            return result?.ToString();
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+    }
+
     public async Task UpdateCompletionModeAsync(string eventId, string completionMode, long nowMs)
     {
         await _mutex.WaitAsync();
