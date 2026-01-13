@@ -41,9 +41,9 @@ public sealed class ErpWorker
                     continue;
                 }
 
-                var backoff = WaitPrintBackoffMs(job.Attempts);
+                var backoff = WaitPrintBackoffMs(job.WaitPrintChecks);
                 var nextRetry = NowMs() + backoff;
-                await _erpOutbox.MarkRetryAsync(job.EventId, nextRetry, "WAIT_PRINT", NowMs());
+                await _erpOutbox.MarkWaitPrintAsync(job.EventId, nextRetry, NowMs());
                 continue;
             }
 
@@ -64,9 +64,9 @@ public sealed class ErpWorker
         return status == PrintJobStatus.Completed || status == PrintJobStatus.Done;
     }
 
-    private static long WaitPrintBackoffMs(int attempts)
+    private static long WaitPrintBackoffMs(int waitPrintChecks)
     {
-        var backoff = (long)(WaitPrintBaseMs * Math.Pow(2, Math.Max(0, attempts)));
+        var backoff = (long)(WaitPrintBaseMs * Math.Pow(2, Math.Max(0, waitPrintChecks)));
         return Math.Min(WaitPrintMaxMs, backoff);
     }
 
