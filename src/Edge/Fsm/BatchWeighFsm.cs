@@ -61,6 +61,9 @@ public sealed class BatchWeighFsm
             case ScanReconEvent scanRecon:
                 OnScanRecon(scanRecon);
                 break;
+            case ScanReconRequiredEvent scanReconRequired:
+                OnScanReconRequired(scanReconRequired);
+                break;
             case PauseEvent pause:
                 OnPause(pause);
                 break;
@@ -150,6 +153,19 @@ public sealed class BatchWeighFsm
         }
 
         EnterState(FsmState.PostGuard, ev.TimestampSeconds);
+    }
+
+    private void OnScanReconRequired(ScanReconRequiredEvent ev)
+    {
+        if (_currentEventId == null || _currentEventId != ev.EventId)
+        {
+            return;
+        }
+
+        if (State != FsmState.Printing)
+        {
+            EnterState(FsmState.Printing, ev.TimestampSeconds, reenter: true);
+        }
     }
 
     private void OnPause(PauseEvent ev)
