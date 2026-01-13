@@ -7,6 +7,7 @@ public enum FsmState
     Settling,
     Locked,
     Printing,
+    ScanReconRequired,
     PostGuard,
     Paused
 }
