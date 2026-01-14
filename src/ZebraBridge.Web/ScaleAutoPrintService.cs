@@ -75,6 +75,11 @@ public sealed class ScaleAutoPrintService : BackgroundService
 
     private async Task TickAsync(CancellationToken token)
     {
+        if (_erpTarget is null)
+        {
+            return;
+        }
+
         var reading = _scaleState.Latest;
         if (!reading.Ok || reading.Weight is null)
         {
@@ -151,9 +156,9 @@ public sealed class ScaleAutoPrintService : BackgroundService
             return;
         }
 
-        var zpl = BuildItemZpl(tag.Value.Epc, tag.Value.ItemCode, tag.Value.ItemName, tag.Value.Qty, tag.Value.Uom);
+        var zpl = BuildItemZpl(tag.Epc, tag.ItemCode, tag.ItemName, tag.Qty, tag.Uom);
         await SendZplAsync(zpl, token);
-        await MarkPrintedAsync(tag.Value.Epc, token);
+        await MarkPrintedAsync(tag.Epc, token);
 
         _awaitingEmpty = true;
         _stableSinceMs = 0;
