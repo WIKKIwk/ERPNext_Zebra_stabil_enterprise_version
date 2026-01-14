@@ -19,7 +19,7 @@ public sealed class ScaleOptions
     public string? Device { get; set; }
     public bool AutoPrintEnabled { get; set; } = true;
     public int AutoPrintStableMs { get; set; } = 1000;
-    public double AutoPrintPlacementMinWeight { get; set; } = 1.0;
+    public double AutoPrintPlacementMinWeight { get; set; } = 0.1;
     public double AutoPrintEmptyThreshold { get; set; } = 0.05;
     public int AutoPrintPollMs { get; set; } = 200;
 
