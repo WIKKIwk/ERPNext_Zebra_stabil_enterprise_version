@@ -55,6 +55,7 @@ builder.Services.AddSingleton<IEpcGenerator, FileEpcGenerator>();
 builder.Services.AddSingleton<IEncodeService, EncodeService>();
 builder.Services.AddSingleton<IPrinterControlService, PrinterControlService>();
 builder.Services.AddHostedService<ScaleReaderService>();
+builder.Services.AddHostedService<ScaleAutoPrintService>();
 builder.Services.AddHostedService<ErpAgentService>();
 
 var app = builder.Build();

@@ -17,6 +17,11 @@ public sealed class ScaleOptions
     public double PushMinDelta { get; set; } = 0.001;
     public string PushEndpoint { get; set; } = "/api/method/rfidenter.rfidenter.api.ingest_scale_weight";
     public string? Device { get; set; }
+    public bool AutoPrintEnabled { get; set; } = true;
+    public int AutoPrintStableMs { get; set; } = 1000;
+    public double AutoPrintPlacementMinWeight { get; set; } = 1.0;
+    public double AutoPrintEmptyThreshold { get; set; } = 0.05;
+    public int AutoPrintPollMs { get; set; } = 200;
 
     public void ApplyEnvironment()
     {
@@ -35,6 +40,11 @@ public sealed class ScaleOptions
         PushMinDelta = OverrideDouble(PushMinDelta, "ZEBRA_SCALE_PUSH_MIN_DELTA");
         PushEndpoint = Override(PushEndpoint, "ZEBRA_SCALE_ERP_ENDPOINT") ?? PushEndpoint;
         Device = Override(Device, "ZEBRA_SCALE_DEVICE");
+        AutoPrintEnabled = OverrideBool(AutoPrintEnabled, "ZEBRA_AUTOPRINT_ENABLED");
+        AutoPrintStableMs = OverrideInt(AutoPrintStableMs, "ZEBRA_AUTOPRINT_STABLE_MS");
+        AutoPrintPlacementMinWeight = OverrideDouble(AutoPrintPlacementMinWeight, "ZEBRA_AUTOPRINT_MIN_WEIGHT");
+        AutoPrintEmptyThreshold = OverrideDouble(AutoPrintEmptyThreshold, "ZEBRA_AUTOPRINT_EMPTY_THRESHOLD");
+        AutoPrintPollMs = OverrideInt(AutoPrintPollMs, "ZEBRA_AUTOPRINT_POLL_MS");
     }
 
     private static string? Override(string? current, string envKey)
