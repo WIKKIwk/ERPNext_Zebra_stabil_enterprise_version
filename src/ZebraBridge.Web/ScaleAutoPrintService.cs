@@ -87,7 +87,7 @@ public sealed class ScaleAutoPrintService : BackgroundService
         }
 
         var weight = reading.Weight.Value;
-        var stable = reading.Stable == true;
+        var stableMarker = reading.Stable;
         var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
         if (weight <= _options.AutoPrintEmptyThreshold)
@@ -103,7 +103,7 @@ public sealed class ScaleAutoPrintService : BackgroundService
             return;
         }
 
-        if (!stable)
+        if (stableMarker == false)
         {
             _stableSinceMs = 0;
             _lastWeight = weight;
