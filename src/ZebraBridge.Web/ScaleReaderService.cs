@@ -368,6 +368,10 @@ public sealed class ScaleReaderService : BackgroundService
 
             var headers = new Dictionary<string, string> { ["Authorization"] = auth };
             var secret = _erpTarget?.Secret ?? _erpOptions.Secret;
+            if (string.IsNullOrWhiteSpace(secret))
+            {
+                secret = auth;
+            }
             if (!string.IsNullOrWhiteSpace(secret))
             {
                 headers["X-RFIDenter-Token"] = secret;

@@ -380,9 +380,10 @@ public sealed class ScaleAutoPrintService : BackgroundService
         {
             headers["Authorization"] = config.AuthHeader;
         }
-        if (!string.IsNullOrWhiteSpace(config.Secret))
+        var secret = string.IsNullOrWhiteSpace(config.Secret) ? config.AuthHeader : config.Secret;
+        if (!string.IsNullOrWhiteSpace(secret))
         {
-            headers["X-RFIDenter-Token"] = config.Secret;
+            headers["X-RFIDenter-Token"] = secret;
         }
         return headers;
     }
