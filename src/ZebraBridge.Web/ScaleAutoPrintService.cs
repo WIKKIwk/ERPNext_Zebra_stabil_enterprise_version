@@ -285,6 +285,7 @@ public sealed class ScaleAutoPrintService : BackgroundService
 
     private static string BuildItemZpl(string epc, string itemCode, string itemName, double qty, string uom, string deviceId)
     {
+        var barcode = SanitizeZplText(deviceId);
         var line1 = SanitizeZplText(itemCode);
         var line2 = SanitizeZplText(itemName);
         var line3 = SanitizeZplText($"{qty.ToString("0.###", CultureInfo.InvariantCulture)} {uom}");
@@ -294,29 +295,36 @@ public sealed class ScaleAutoPrintService : BackgroundService
         var lines = new List<string>
         {
             "^XA",
+            "^PW200",
+            "^LL800",
             "^RS8,,,1,N",
             $"^RFW,H,,,A^FD{epc}^FS"
         };
 
+        if (!string.IsNullOrWhiteSpace(barcode))
+        {
+            lines.Add("^BY1,2,40");
+            lines.Add($"^FO30,5^BCN,40,N,N,N^FD{barcode}^FS");
+        }
         if (!string.IsNullOrWhiteSpace(line1))
         {
-            lines.Add($"^FO30,30^A0N,34,34^FD{line1}^FS");
+            lines.Add($"^FO30,60^A0N,34,34^FD{line1}^FS");
         }
         if (!string.IsNullOrWhiteSpace(line2))
         {
-            lines.Add($"^FO30,70^A0N,28,28^FD{line2}^FS");
+            lines.Add($"^FO30,100^A0N,28,28^FD{line2}^FS");
         }
         if (!string.IsNullOrWhiteSpace(line3))
         {
-            lines.Add($"^FO30,110^A0N,34,34^FD{line3}^FS");
+            lines.Add($"^FO30,140^A0N,34,34^FD{line3}^FS");
         }
         if (!string.IsNullOrWhiteSpace(line4))
         {
-            lines.Add($"^FO30,155^A0N,22,22^FD{line4}^FS");
+            lines.Add($"^FO30,185^A0N,22,22^FD{line4}^FS");
         }
         if (!string.IsNullOrWhiteSpace(line5))
         {
-            lines.Add($"^FO30,185^A0N,22,22^FD{line5}^FS");
+            lines.Add($"^FO30,215^A0N,22,22^FD{line5}^FS");
         }
 
         lines.Add("^PQ1");
