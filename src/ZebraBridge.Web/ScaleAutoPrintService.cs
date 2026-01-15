@@ -297,8 +297,8 @@ public sealed class ScaleAutoPrintService : BackgroundService
 
         if (!string.IsNullOrWhiteSpace(barcode))
         {
-            lines.Add("^BY1,2,120");
-            lines.Add($"^FO10,10^BCN,120,N,N,N^FD{barcode}^FS");
+            lines.Add("^BY2,2,240");
+            lines.Add($"^FO10,10^BCR,240,N,N,N^FD{barcode}^FS");
         }
 
         lines.Add("^PQ1");
