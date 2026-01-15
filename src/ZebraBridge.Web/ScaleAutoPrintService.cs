@@ -296,8 +296,8 @@ public sealed class ScaleAutoPrintService : BackgroundService
         var lines = new List<string>
         {
             "^XA",
-            "^PW200",
-            "^LL800",
+            "^PW300",
+            "^LL1200",
             "^RS8,,,1,N",
             $"^RFW,H,,,A^FD{epc}^FS"
         };
