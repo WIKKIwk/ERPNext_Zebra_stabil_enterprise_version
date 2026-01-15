@@ -285,7 +285,7 @@ public sealed class ScaleAutoPrintService : BackgroundService
 
     private static string BuildItemZpl(string epc, string itemCode, string itemName, double qty, string uom, string deviceId)
     {
-        var barcode = SanitizeZplText(deviceId);
+        var barcode = SanitizeZplText(epc);
         var line1 = SanitizeZplText(itemCode);
         var line2 = SanitizeZplText(itemName);
         var line3 = SanitizeZplText($"{qty.ToString("0.###", CultureInfo.InvariantCulture)} {uom}");
