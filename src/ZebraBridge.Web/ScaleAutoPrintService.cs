@@ -304,32 +304,32 @@ public sealed class ScaleAutoPrintService : BackgroundService
 
         if (!string.IsNullOrWhiteSpace(line1))
         {
-            lines.Add($"^FO20,160^A0N,70,70^FD{line1}^FS");
+            lines.Add($"^FO10,10^A0N,34,34^FD{line1}^FS");
         }
         if (!string.IsNullOrWhiteSpace(line2))
         {
-            lines.Add($"^FO20,240^A0N,56,56^FD{line2}^FS");
+            lines.Add($"^FO10,40^A0N,28,28^FD{line2}^FS");
         }
         if (!string.IsNullOrWhiteSpace(line3))
         {
-            lines.Add($"^FO20,320^A0N,70,70^FD{line3}^FS");
+            lines.Add($"^FO10,70^A0N,34,34^FD{line3}^FS");
         }
         if (!string.IsNullOrWhiteSpace(line4))
         {
-            lines.Add($"^FO20,410^A0N,44,44^FD{line4}^FS");
+            lines.Add($"^FO10,105^A0N,20,20^FD{line4}^FS");
         }
         if (!string.IsNullOrWhiteSpace(line5))
         {
-            lines.Add($"^FO20,460^A0N,50,50^FD{line5}^FS");
+            lines.Add($"^FO10,130^A0N,20,20^FD{line5}^FS");
         }
         if (!string.IsNullOrWhiteSpace(qrData))
         {
-            lines.Add($"^FO120,40^BQN,2,2^FDLA,{qrData}^FS");
+            lines.Add($"^FO10,160^BQN,2,1^FDLA,{qrData}^FS");
         }
         if (!string.IsNullOrWhiteSpace(barcode))
         {
-            lines.Add("^BY1,1,40");
-            lines.Add($"^FO20,520^BCN,40,N,N,N^FD{barcode}^FS");
+            lines.Add("^BY1,1,30");
+            lines.Add($"^FO10,220^BCN,30,N,N,N^FD{barcode}^FS");
         }
 
         lines.Add("^PQ1");
