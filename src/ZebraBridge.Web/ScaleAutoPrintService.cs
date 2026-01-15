@@ -285,7 +285,7 @@ public sealed class ScaleAutoPrintService : BackgroundService
 
     private static string BuildItemZpl(string epc, string itemCode, string itemName, double qty, string uom, string deviceId)
     {
-        var barcode = SanitizeZplText(epc);
+        var barcode = SanitizeZplText(deviceId);
         var line1 = SanitizeZplText(itemCode);
         var line2 = SanitizeZplText(itemName);
         var line3 = SanitizeZplText($"{qty.ToString("0.###", CultureInfo.InvariantCulture)} {uom}");
@@ -301,11 +301,6 @@ public sealed class ScaleAutoPrintService : BackgroundService
             $"^RFW,H,,,A^FD{epc}^FS"
         };
 
-        if (!string.IsNullOrWhiteSpace(barcode))
-        {
-            lines.Add("^BY3,3,120");
-            lines.Add($"^FO20,10^BCN,120,Y,N,N^FD{barcode}^FS");
-        }
         if (!string.IsNullOrWhiteSpace(line1))
         {
             lines.Add($"^FO20,160^A0N,70,70^FD{line1}^FS");
@@ -325,6 +320,11 @@ public sealed class ScaleAutoPrintService : BackgroundService
         if (!string.IsNullOrWhiteSpace(line5))
         {
             lines.Add($"^FO20,460^A0N,50,50^FD{line5}^FS");
+        }
+        if (!string.IsNullOrWhiteSpace(barcode))
+        {
+            lines.Add("^BY3,3,120");
+            lines.Add($"^FO20,520^BCN,120,Y,N,N^FD{barcode}^FS");
         }
 
         lines.Add("^PQ1");
