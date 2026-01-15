@@ -300,8 +300,6 @@ public sealed class ScaleAutoPrintService : BackgroundService
             lines.Add($"^FO10,20^A0N,40,40^FDIPC: {barcode}^FS");
             lines.Add("^FO10,70^A0N,34,34^FDAccord Vision^FS");
             lines.Add("^FO11,70^A0N,34,34^FDAccord Vision^FS");
-            lines.Add("^BY2,2,80");
-            lines.Add($"^FO10,120^BCN,80,N,N,N^FD{barcode}^FS");
         }
 
         lines.Add("^PQ1");
