@@ -64,6 +64,58 @@ check_web_health() {
   return 1
 }
 
+find_listening_pid() {
+  local port="$1"
+
+  if command -v ss >/dev/null 2>&1; then
+    ss -lptn "( sport = :${port} )" 2>/dev/null \
+      | awk -F'pid=' 'NR>1 && $2 { split($2, a, ","); print a[1]; exit }'
+    return
+  fi
+
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null | head -n 1 || true
+    return
+  fi
+
+  echo ""
+}
+
+is_zebra_bridge_process() {
+  local pid="$1"
+  if [[ -z "${pid}" ]]; then
+    return 1
+  fi
+  ps -p "${pid}" -o comm= 2>/dev/null | tr -d '[:space:]' | grep -qi "ZebraBridge.Web"
+}
+
+stop_existing_server() {
+  local base_url="$1"
+  local port="$2"
+
+  local pid
+  pid="$(find_listening_pid "${port}")"
+  if [[ -z "${pid}" ]]; then
+    return 0
+  fi
+
+  if check_web_health "${base_url}" || is_zebra_bridge_process "${pid}"; then
+    kill "${pid}" >/dev/null 2>&1 || true
+    for _ in $(seq 1 40); do
+      if [[ -z "$(find_listening_pid "${port}")" ]]; then
+        return 0
+      fi
+      sleep 0.1
+    done
+    kill -9 "${pid}" >/dev/null 2>&1 || true
+    sleep 0.2
+    return 0
+  fi
+
+  echo "ERROR: Port ${port} is already in use and does not look like zebra-bridge." >&2
+  exit 1
+}
+
 show_boot_animation() {
   local base_url="$1"
   if [[ ! -t 1 ]]; then
@@ -191,11 +243,13 @@ if [[ "${1:-}" == "--tui" ]]; then
     "${ROOT_DIR}/cli.sh" setup "${SETUP_ARGS[@]}"
   fi
 
+  BASE_URL="http://${WEB_HOST}:${WEB_PORT}"
+  stop_existing_server "${BASE_URL}" "${WEB_PORT}"
+
   "${DOTNET_BIN}" run --project "${ROOT_DIR}/src/ZebraBridge.Web/ZebraBridge.Web.csproj" \
     > "${LOG_FILE}" 2>&1 &
 
   SERVER_PID=$!
-  BASE_URL="http://${WEB_HOST}:${WEB_PORT}"
   show_boot_animation "${BASE_URL}"
 
   cleanup() {
@@ -208,5 +262,8 @@ if [[ "${1:-}" == "--tui" ]]; then
   "${ROOT_DIR}/cli.sh" tui "${TUI_ARGS[@]}"
   exit 0
 fi
+
+BASE_URL="http://${WEB_HOST}:${WEB_PORT}"
+stop_existing_server "${BASE_URL}" "${WEB_PORT}"
 
 exec "${DOTNET_BIN}" run --project "${ROOT_DIR}/src/ZebraBridge.Web/ZebraBridge.Web.csproj"
