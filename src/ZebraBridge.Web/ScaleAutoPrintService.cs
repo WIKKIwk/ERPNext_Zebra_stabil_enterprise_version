@@ -293,8 +293,6 @@ public sealed class ScaleAutoPrintService : BackgroundService
             "^LH0,0",
             "^LT0",
             "^FWN",
-            "^RS8,,,1,N",
-            $"^RFW,H,,,A^FD{epc}^FS"
         };
 
         if (!string.IsNullOrWhiteSpace(barcode))
