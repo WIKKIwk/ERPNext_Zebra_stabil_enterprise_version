@@ -156,7 +156,7 @@ public sealed class ScaleAutoPrintService : BackgroundService
             return;
         }
 
-        var zpl = BuildItemZpl(tag.Epc, tag.ItemCode, tag.ItemName, tag.Qty, tag.Uom);
+        var zpl = BuildItemZpl(tag.Epc, tag.ItemCode, tag.ItemName, tag.Qty, tag.Uom, deviceId);
         await SendZplAsync(zpl, token);
         await MarkPrintedAsync(tag.Epc, token);
 
@@ -283,12 +283,13 @@ public sealed class ScaleAutoPrintService : BackgroundService
         return await JsonDocument.ParseAsync(stream, cancellationToken: token);
     }
 
-    private static string BuildItemZpl(string epc, string itemCode, string itemName, double qty, string uom)
+    private static string BuildItemZpl(string epc, string itemCode, string itemName, double qty, string uom, string deviceId)
     {
         var line1 = SanitizeZplText(itemCode);
         var line2 = SanitizeZplText(itemName);
         var line3 = SanitizeZplText($"{qty.ToString("0.###", CultureInfo.InvariantCulture)} {uom}");
         var line4 = SanitizeZplText(epc);
+        var line5 = SanitizeZplText(string.IsNullOrWhiteSpace(deviceId) ? "" : $"IPC: {deviceId}");
 
         var lines = new List<string>
         {
@@ -312,6 +313,10 @@ public sealed class ScaleAutoPrintService : BackgroundService
         if (!string.IsNullOrWhiteSpace(line4))
         {
             lines.Add($"^FO30,155^A0N,22,22^FD{line4}^FS");
+        }
+        if (!string.IsNullOrWhiteSpace(line5))
+        {
+            lines.Add($"^FO30,185^A0N,22,22^FD{line5}^FS");
         }
 
         lines.Add("^PQ1");
