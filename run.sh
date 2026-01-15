@@ -64,6 +64,23 @@ check_web_health() {
   return 1
 }
 
+is_zebra_bridge_health() {
+  local base_url="$1"
+  local url="${base_url%/}/api/v1/health"
+  local body=""
+
+  if command -v curl >/dev/null 2>&1; then
+    body="$(curl -fsS "${url}" 2>/dev/null || true)"
+  elif command -v wget >/dev/null 2>&1; then
+    body="$(wget -qO - "${url}" 2>/dev/null || true)"
+  else
+    return 1
+  fi
+
+  echo "${body}" | grep -q '"service":"zebra-bridge-v1"' || return 1
+  return 0
+}
+
 find_listening_pid() {
   local port="$1"
 
@@ -99,7 +116,7 @@ stop_existing_server() {
     return 0
   fi
 
-  if check_web_health "${base_url}" || is_zebra_bridge_process "${pid}"; then
+  if is_zebra_bridge_health "${base_url}" || is_zebra_bridge_process "${pid}"; then
     kill "${pid}" >/dev/null 2>&1 || true
     for _ in $(seq 1 40); do
       if [[ -z "$(find_listening_pid "${port}")" ]]; then
@@ -144,7 +161,7 @@ $'ZEBRA BRIDGE\n[==========>]\nInitializing...'
   while (( SECONDS - start < max_seconds )); do
     printf "\033[2J\033[H%s" "${frames[i]}"
     i=$(( (i + 1) % ${#frames[@]} ))
-    if check_web_health "${base_url}" && (( SECONDS - start >= min_seconds )); then
+    if is_zebra_bridge_health "${base_url}" && (( SECONDS - start >= min_seconds )); then
       break
     fi
     sleep 0.08
