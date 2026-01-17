@@ -42,8 +42,8 @@ public sealed class ErpWorker
                 }
 
                 var backoff = WaitPrintBackoffMs(job.WaitPrintChecks);
-                var nextRetry = NowMs() + backoff;
-                await _erpOutbox.MarkWaitPrintAsync(job.EventId, nextRetry, NowMs());
+                var waitRetryAt = NowMs() + backoff;
+                await _erpOutbox.MarkWaitPrintAsync(job.EventId, waitRetryAt, NowMs());
                 continue;
             }
 
