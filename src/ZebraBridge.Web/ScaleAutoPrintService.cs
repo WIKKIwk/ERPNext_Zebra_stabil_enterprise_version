@@ -158,7 +158,11 @@ public sealed class ScaleAutoPrintService : BackgroundService
 
         var zpl = BuildItemZpl(tag.Epc, tag.ItemCode, tag.ItemName, tag.Qty, tag.Uom, deviceId);
         await SendZplAsync(zpl, token);
-        await MarkPrintedAsync(tag.Epc, token);
+        var marked = await MarkPrintedAsync(tag.Epc, token);
+        if (marked)
+        {
+            await ReportPrintEventAsync(snapshot, tag, deviceId, token);
+        }
 
         _awaitingEmpty = true;
         _stableSinceMs = 0;
@@ -192,7 +196,41 @@ public sealed class ScaleAutoPrintService : BackgroundService
         return new DeviceSnapshot(
             Status: GetString(stateEl, "status"),
             CurrentBatch: GetString(stateEl, "current_batch_id"),
-            CurrentProduct: GetString(stateEl, "current_product"));
+            CurrentProduct: GetString(stateEl, "current_product"),
+            LastEventSeq: GetLong(stateEl, "last_event_seq", 0));
+    }
+
+    private async Task ReportPrintEventAsync(DeviceSnapshot snapshot, ItemTag tag, string deviceId, CancellationToken token)
+    {
+        if (_erpTarget is null)
+        {
+            return;
+        }
+
+        var batchId = snapshot.CurrentBatch;
+        if (string.IsNullOrWhiteSpace(batchId))
+        {
+            return;
+        }
+
+        var nextSeq = Math.Max(1, snapshot.LastEventSeq + 1);
+        var payload = new Dictionary<string, object>
+        {
+            ["event_id"] = Guid.NewGuid().ToString(),
+            ["device_id"] = deviceId,
+            ["batch_id"] = batchId,
+            ["seq"] = nextSeq,
+            ["event_type"] = "print_completed",
+            ["payload"] = new Dictionary<string, object>
+            {
+                ["product_id"] = tag.ItemCode,
+                ["qty"] = tag.Qty,
+                ["uom"] = tag.Uom,
+                ["epc"] = tag.Epc
+            }
+        };
+
+        await PostJsonAsync("rfidenter.edge_event_report", payload, token);
     }
 
     private async Task<ItemTag?> CreateItemTagAsync(string itemCode, double weight, string requestId, CancellationToken token)
@@ -236,10 +274,11 @@ public sealed class ScaleAutoPrintService : BackgroundService
         return new ItemTag(epc, itemCode, itemName, qty, uom);
     }
 
-    private async Task MarkPrintedAsync(string epc, CancellationToken token)
+    private async Task<bool> MarkPrintedAsync(string epc, CancellationToken token)
     {
         var payload = new Dictionary<string, object> { ["epc"] = epc };
-        await PostJsonAsync("rfidenter.rfidenter.api.zebra_mark_tag_printed", payload, token);
+        var doc = await PostJsonAsync("rfidenter.rfidenter.api.zebra_mark_tag_printed", payload, token);
+        return doc is not null;
     }
 
     private async Task SendZplAsync(string zpl, CancellationToken token)
@@ -360,6 +399,26 @@ public sealed class ScaleAutoPrintService : BackgroundService
         return fallback;
     }
 
+    private static long GetLong(JsonElement obj, string key, long fallback)
+    {
+        if (!obj.TryGetProperty(key, out var el))
+        {
+            return fallback;
+        }
+
+        if (el.ValueKind == JsonValueKind.Number && el.TryGetInt64(out var val))
+        {
+            return val;
+        }
+
+        if (el.ValueKind == JsonValueKind.String && long.TryParse(el.GetString(), out var parsed))
+        {
+            return parsed;
+        }
+
+        return fallback;
+    }
+
     private static ErpAgentRuntimeConfig? ResolveErpTarget(ErpAgentOptions options)
     {
         var configs = ErpAgentConfigLoader.Load(options);
@@ -381,7 +440,7 @@ public sealed class ScaleAutoPrintService : BackgroundService
         return headers;
     }
 
-    private sealed record DeviceSnapshot(string Status, string CurrentBatch, string CurrentProduct);
+    private sealed record DeviceSnapshot(string Status, string CurrentBatch, string CurrentProduct, long LastEventSeq);
 
     private sealed record ItemTag(string Epc, string ItemCode, string ItemName, double Qty, string Uom);
 }
