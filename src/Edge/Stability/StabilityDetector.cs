@@ -13,6 +13,7 @@ public sealed class StabilityDetector
     private double? _lastMono;
     private int _spikeCount;
     private bool _relearnMode;
+    private int _totalSamples;
 
     public StabilityDetector(StabilitySettings settings)
     {
@@ -26,6 +27,7 @@ public sealed class StabilityDetector
     public double Mean { get; private set; }
     public double Range { get; private set; }
     public int SampleCount => _window.Count;
+    public int TotalSamples => _totalSamples;
     public double WindowSpanSeconds { get; private set; }
     public double MedianDt { get; private set; }
 
@@ -39,6 +41,7 @@ public sealed class StabilityDetector
         _lastMono = null;
         _spikeCount = 0;
         _relearnMode = false;
+        _totalSamples = 0;
         Fast = 0;
         Slow = 0;
         IsStable = false;
@@ -128,6 +131,7 @@ public sealed class StabilityDetector
             Slow = alphaSlow * m + (1 - alphaSlow) * Slow;
         }
 
+        _totalSamples++;
         _window.Enqueue((sample.MonoTimeSeconds, m));
         _slowHistory.Enqueue((sample.MonoTimeSeconds, Slow));
         TrimWindow(sample.MonoTimeSeconds);
@@ -149,7 +153,8 @@ public sealed class StabilityDetector
 
     private void TrimWindow(double now)
     {
-        while (_window.Count > 0 && now - _window.Peek().Time > _settings.WindowSeconds)
+        const double epsilon = 1e-9;
+        while (_window.Count > 0 && now - _window.Peek().Time > _settings.WindowSeconds + epsilon)
         {
             _window.Dequeue();
         }

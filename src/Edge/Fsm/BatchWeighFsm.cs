@@ -231,7 +231,7 @@ public sealed class BatchWeighFsm
                     break;
                 }
                 if (sample.MonoTimeSeconds - _stateEnteredAt >= _config.SettleSeconds
-                    && _detector.SampleCount >= _config.MinSamples)
+                    && _detector.TotalSamples >= _config.MinSamples)
                 {
                     EnterState(FsmState.Settling, sample.MonoTimeSeconds);
                 }
