@@ -35,7 +35,8 @@ public sealed class ErpWorker
             var printStatus = await _printOutbox.GetStatusAsync(job.EventId);
             if (!IsPrintCompleted(printStatus))
             {
-                if (nowMs - job.CreatedAtMs >= MaxWaitPrintAgeMs)
+                var createdAtMs = job.CreatedAtMs <= 0 ? nowMs : job.CreatedAtMs;
+                if (nowMs - createdAtMs >= MaxWaitPrintAgeMs)
                 {
                     await _erpOutbox.MarkNeedsOperatorAsync(job.EventId, "WAIT_PRINT_TIMEOUT", NowMs());
                     continue;
