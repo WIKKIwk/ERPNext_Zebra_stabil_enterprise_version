@@ -11,6 +11,7 @@ public sealed class ScaleAutoPrintService : BackgroundService
 {
     private readonly ScaleOptions _options;
     private readonly IScaleState _scaleState;
+    private readonly PrinterOptions _printerOptions;
     private readonly ErpAgentRuntimeConfig? _erpTarget;
     private readonly IHttpClientFactory _clientFactory;
     private readonly IPrinterTransportFactory _transportFactory;
@@ -24,6 +25,7 @@ public sealed class ScaleAutoPrintService : BackgroundService
     public ScaleAutoPrintService(
         ScaleOptions options,
         IScaleState scaleState,
+        PrinterOptions printerOptions,
         ErpAgentOptions erpOptions,
         IHttpClientFactory clientFactory,
         IPrinterTransportFactory transportFactory,
@@ -32,6 +34,7 @@ public sealed class ScaleAutoPrintService : BackgroundService
     {
         _options = options;
         _scaleState = scaleState;
+        _printerOptions = printerOptions;
         _erpTarget = ResolveErpTarget(erpOptions);
         _clientFactory = clientFactory;
         _transportFactory = transportFactory;
@@ -156,7 +159,7 @@ public sealed class ScaleAutoPrintService : BackgroundService
             return;
         }
 
-        var zpl = BuildItemZpl(tag.Epc, tag.ItemCode, tag.ItemName, tag.Qty, tag.Uom, deviceId);
+        var zpl = BuildItemZpl(tag.Epc, tag.ItemCode, tag.ItemName, tag.Qty, tag.Uom, deviceId, _printerOptions);
         await SendZplAsync(zpl, token);
         var marked = await MarkPrintedAsync(tag.Epc, token);
         if (marked)
@@ -322,12 +325,30 @@ public sealed class ScaleAutoPrintService : BackgroundService
         return await JsonDocument.ParseAsync(stream, cancellationToken: token);
     }
 
-    private static string BuildItemZpl(string epc, string itemCode, string itemName, double qty, string uom, string deviceId)
+    private static string BuildItemZpl(
+        string epc,
+        string itemCode,
+        string itemName,
+        double qty,
+        string uom,
+        string deviceId,
+        PrinterOptions printerOptions)
     {
+        var epcHex = Epc.Normalize(epc);
+        Epc.Validate(epcHex);
+
         var itemLabel = SanitizeZplText(string.IsNullOrWhiteSpace(itemName) ? itemCode : itemName);
         var qtyLabel = qty > 0
             ? $"{qty.ToString("0.###", CultureInfo.InvariantCulture)} {SanitizeZplText(uom)}".Trim()
             : string.Empty;
+        var epcLabel = SanitizeZplText(epcHex);
+
+        var options = new RfidWriteOptions(
+            PrintHumanReadable: false,
+            Copies: 1,
+            FeedAfterEncode: printerOptions.FeedAfterEncode,
+            LabelsToTryOnError: printerOptions.LabelsToTryOnError,
+            ErrorHandlingAction: printerOptions.ErrorHandlingAction);
 
         var lines = new List<string>
         {
@@ -335,7 +356,18 @@ public sealed class ScaleAutoPrintService : BackgroundService
             "^LH0,0",
             "^LT0",
             "^FWN",
+            ZplBuilder.BuildRfidSetup(options)
         };
+
+        if (options.MemoryBank == 1 && options.WordPointer == 2 && options.AutoAdjustPcBits)
+        {
+            lines.Add($"^RFW,H,,,A^FD{epcHex}^FS");
+        }
+        else
+        {
+            var byteCount = Epc.HexToWordCount(epcHex) * 2;
+            lines.Add($"^RFW,H,{options.WordPointer},{byteCount},{options.MemoryBank}^FD{epcHex}^FS");
+        }
 
         if (!string.IsNullOrWhiteSpace(itemLabel))
         {
@@ -344,6 +376,10 @@ public sealed class ScaleAutoPrintService : BackgroundService
         if (!string.IsNullOrWhiteSpace(qtyLabel))
         {
             lines.Add($"^FO10,70^A0N,32,32^FD{qtyLabel}^FS");
+        }
+        if (!string.IsNullOrWhiteSpace(epcLabel))
+        {
+            lines.Add($"^FO10,120^A0N,28,28^FD{epcLabel}^FS");
         }
 
         lines.Add("^PQ1");
