@@ -182,6 +182,33 @@ if [[ -z "${ASPNETCORE_URLS:-}" ]]; then
   export ASPNETCORE_URLS="http://${WEB_HOST}:${WEB_PORT}"
 fi
 
+if [[ "${1:-}" == "--daemon" || "${1:-}" == "--service" ]]; then
+  shift || true
+  LOG_DIR="${LOG_DIR:-${ROOT_DIR}/logs}"
+  LOG_FILE="${ZEBRA_DAEMON_LOG:-${LOG_DIR}/zebra-web.log}"
+  PID_FILE="${ZEBRA_DAEMON_PID:-${LOG_DIR}/zebra-web.pid}"
+  mkdir -p "${LOG_DIR}"
+
+  if [[ -f "${PID_FILE}" ]]; then
+    pid="$(cat "${PID_FILE}" 2>/dev/null || true)"
+    if [[ -n "${pid}" ]] && kill -0 "${pid}" >/dev/null 2>&1; then
+      echo "zebra-bridge already running (pid ${pid})."
+      exit 0
+    fi
+    rm -f "${PID_FILE}"
+  fi
+
+  BASE_URL="http://${WEB_HOST}:${WEB_PORT}"
+  stop_existing_server "${BASE_URL}" "${WEB_PORT}"
+
+  nohup "${DOTNET_BIN}" run --project "${ROOT_DIR}/src/ZebraBridge.Web/ZebraBridge.Web.csproj" \
+    > "${LOG_FILE}" 2>&1 &
+  pid=$!
+  echo "${pid}" > "${PID_FILE}"
+  echo "zebra-bridge started (pid ${pid}). Logs: ${LOG_FILE}"
+  exit 0
+fi
+
 if [[ "${1:-}" == "--tui" ]]; then
   shift || true
   LOG_DIR="${LOG_DIR:-${ROOT_DIR}/logs}"
