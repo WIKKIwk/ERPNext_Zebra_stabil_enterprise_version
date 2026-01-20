@@ -99,6 +99,9 @@ public sealed class ScaleReaderService : BackgroundService
         var rawBuffer = new StringBuilder(256);
         double? lastWeight = null;
         bool? lastStable = null;
+        var idleTimeout = GetReconnectIdleTimeout();
+        var lastDataAt = DateTimeOffset.UtcNow;
+        var hadData = false;
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -109,14 +112,28 @@ public sealed class ScaleReaderService : BackgroundService
             }
             catch (TimeoutException)
             {
+                if (idleTimeout.HasValue && hadData &&
+                    DateTimeOffset.UtcNow - lastDataAt > idleTimeout.Value)
+                {
+                    UpdateError("Scale idle timeout; reconnecting.", port.PortName);
+                    return;
+                }
                 continue;
             }
 
             if (read <= 0)
             {
+                if (idleTimeout.HasValue && hadData &&
+                    DateTimeOffset.UtcNow - lastDataAt > idleTimeout.Value)
+                {
+                    UpdateError("Scale idle timeout; reconnecting.", port.PortName);
+                    return;
+                }
                 continue;
             }
 
+            lastDataAt = DateTimeOffset.UtcNow;
+            hadData = true;
             var text = Encoding.ASCII.GetString(buffer, 0, read);
             if (string.IsNullOrWhiteSpace(text))
             {
@@ -156,15 +173,23 @@ public sealed class ScaleReaderService : BackgroundService
 
     private string ResolvePortName()
     {
-        if (!string.IsNullOrWhiteSpace(_options.Port))
-        {
-            return _options.Port.Trim();
-        }
-
         var ports = ScalePortEnumerator.ListPorts()
             .Select(port => port.Device)
             .Where(port => !string.IsNullOrWhiteSpace(port))
             .ToList();
+
+        if (!string.IsNullOrWhiteSpace(_options.Port))
+        {
+            var configured = _options.Port.Trim();
+            if (ports.Count == 0)
+            {
+                return configured;
+            }
+            if (ports.Any(port => string.Equals(port, configured, StringComparison.OrdinalIgnoreCase)))
+            {
+                return configured;
+            }
+        }
 
         if (ports.Count == 0)
         {
@@ -199,6 +224,18 @@ public sealed class ScaleReaderService : BackgroundService
         }
 
         return ports[0];
+    }
+
+    private TimeSpan? GetReconnectIdleTimeout()
+    {
+        var seconds = _options.ReconnectIdleSec;
+        if (seconds <= 0)
+        {
+            return null;
+        }
+
+        var clamped = Math.Clamp(seconds, 0.2, 60.0);
+        return TimeSpan.FromSeconds(clamped);
     }
 
     private SerialPort OpenPort(string portName)

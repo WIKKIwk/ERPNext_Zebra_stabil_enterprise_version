@@ -40,8 +40,15 @@ public static class PrinterPresenceProbe
         }
 
         var devicePath = string.IsNullOrWhiteSpace(options.DevicePath)
-            ? DetectLinuxDevicePath()
-            : options.DevicePath;
+            ? null
+            : options.DevicePath.Trim();
+
+        if (!string.IsNullOrWhiteSpace(devicePath) && !File.Exists(devicePath))
+        {
+            devicePath = null;
+        }
+
+        devicePath ??= DetectLinuxDevicePath();
 
         if (string.IsNullOrWhiteSpace(devicePath))
         {

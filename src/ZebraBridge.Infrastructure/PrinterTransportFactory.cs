@@ -35,8 +35,15 @@ public sealed class PrinterTransportFactory : IPrinterTransportFactory
         }
 
         var devicePath = string.IsNullOrWhiteSpace(_options.DevicePath)
-            ? DetectLinuxDevicePath()
-            : _options.DevicePath;
+            ? null
+            : _options.DevicePath.Trim();
+
+        if (!string.IsNullOrWhiteSpace(devicePath) && !File.Exists(devicePath))
+        {
+            devicePath = null;
+        }
+
+        devicePath ??= DetectLinuxDevicePath();
 
         if (string.IsNullOrWhiteSpace(devicePath))
         {
