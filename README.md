@@ -78,6 +78,18 @@ On startup it shows an ONLINE/OFFLINE selector. If you choose ONLINE it will ask
 The answers are saved to `~/.local/state/zebra-bridge/erp-config.json` (or `ZEBRA_ERP_CONFIG_PATH`)
 and the ERP UI (`rfidenter`) can control the device after that.
 
+Background (service-style, survives terminal close):
+
+```
+./run.sh --daemon
+./stop.sh
+```
+
+Optional env:
+- `ZEBRA_DAEMON_LOG` (default `logs/zebra-web.log`)
+- `ZEBRA_DAEMON_PID` (default `logs/zebra-web.pid`)
+- `ZEBRA_SCALE_RECONNECT_IDLE_SEC` (default `3.0`, set 0 to disable)
+
 ## Example Calls
 
 Encode a single EPC:
