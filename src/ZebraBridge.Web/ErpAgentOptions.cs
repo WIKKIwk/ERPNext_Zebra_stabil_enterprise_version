@@ -13,6 +13,7 @@ public sealed class ErpAgentOptions
     public string ReplyEndpoint { get; set; } = "/api/method/rfidenter.rfidenter.api.agent_reply";
     public int HeartbeatIntervalMs { get; set; } = 10_000;
     public int PollIntervalMs { get; set; } = 800;
+    public int PollWaitMs { get; set; } = 1500;
     public int PollMax { get; set; } = 5;
     public string Version { get; set; } = "zebra-bridge-v1";
 
@@ -29,6 +30,7 @@ public sealed class ErpAgentOptions
         ReplyEndpoint = Override(ReplyEndpoint, "ZEBRA_ERP_REPLY_ENDPOINT") ?? ReplyEndpoint;
         HeartbeatIntervalMs = OverrideInt(HeartbeatIntervalMs, "ZEBRA_ERP_HEARTBEAT_MS", "ERP_AGENT_INTERVAL_MS");
         PollIntervalMs = OverrideInt(PollIntervalMs, "ZEBRA_ERP_POLL_MS", "ERP_RPC_POLL_MS");
+        PollWaitMs = OverrideInt(PollWaitMs, "ZEBRA_ERP_POLL_WAIT_MS", "ERP_RPC_POLL_WAIT_MS");
         PollMax = OverrideInt(PollMax, "ZEBRA_ERP_POLL_MAX", "ERP_RPC_POLL_MAX");
         Version = Override(Version, "ZEBRA_ERP_AGENT_VERSION") ?? Version;
     }

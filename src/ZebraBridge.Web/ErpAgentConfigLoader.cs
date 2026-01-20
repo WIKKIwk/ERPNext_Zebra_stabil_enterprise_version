@@ -15,6 +15,7 @@ public sealed record ErpAgentRuntimeConfig(
     string ReplyEndpoint,
     int HeartbeatIntervalMs,
     int PollIntervalMs,
+    int PollWaitMs,
     int PollMax,
     string Version);
 
@@ -161,6 +162,7 @@ public static class ErpAgentConfigLoader
             enabled: true,
             heartbeatMs: options.HeartbeatIntervalMs,
             pollMs: options.PollIntervalMs,
+            pollWaitMs: options.PollWaitMs,
             pollMax: options.PollMax,
             version: options.Version);
 
@@ -199,10 +201,11 @@ public static class ErpAgentConfigLoader
 
         var heartbeatMs = GetInt(profile, "heartbeatMs", options.HeartbeatIntervalMs);
         var pollMs = GetInt(profile, "pollMs", options.PollIntervalMs);
+        var pollWaitMs = GetInt(profile, "pollWaitMs", GetInt(profile, "poll_wait_ms", options.PollWaitMs));
         var pollMax = GetInt(profile, "pollMax", options.PollMax);
         var version = GetString(profile, "version", options.Version);
 
-        return BuildConfig(options, name, baseUrl, auth, secret, agentId, device, enabled, heartbeatMs, pollMs, pollMax, version);
+        return BuildConfig(options, name, baseUrl, auth, secret, agentId, device, enabled, heartbeatMs, pollMs, pollWaitMs, pollMax, version);
     }
 
     private static List<ErpAgentRuntimeConfig> BuildFromTargets(ErpAgentOptions options, JsonElement targets)
@@ -226,10 +229,11 @@ public static class ErpAgentConfigLoader
             var enabled = GetBool(target, "enabled", true);
             var heartbeatMs = GetInt(target, "heartbeatMs", options.HeartbeatIntervalMs);
             var pollMs = GetInt(target, "pollMs", options.PollIntervalMs);
+            var pollWaitMs = GetInt(target, "pollWaitMs", GetInt(target, "poll_wait_ms", options.PollWaitMs));
             var pollMax = GetInt(target, "pollMax", options.PollMax);
             var version = GetString(target, "version", options.Version);
 
-            var config = BuildConfig(options, name, baseUrl, auth, secret, agentId, device, enabled, heartbeatMs, pollMs, pollMax, version);
+            var config = BuildConfig(options, name, baseUrl, auth, secret, agentId, device, enabled, heartbeatMs, pollMs, pollWaitMs, pollMax, version);
             if (config is not null)
             {
                 configs.Add(config);
@@ -266,7 +270,7 @@ public static class ErpAgentConfigLoader
         var enabled = ParseBool(enabledRaw, true);
 
         return BuildConfig(options, name, baseUrl, auth, secret, agentId, device, enabled,
-            options.HeartbeatIntervalMs, options.PollIntervalMs, options.PollMax, options.Version);
+            options.HeartbeatIntervalMs, options.PollIntervalMs, options.PollWaitMs, options.PollMax, options.Version);
     }
 
     private static ErpAgentRuntimeConfig? BuildConfig(
@@ -280,6 +284,7 @@ public static class ErpAgentConfigLoader
         bool enabled,
         int heartbeatMs,
         int pollMs,
+        int pollWaitMs,
         int pollMax,
         string? version)
     {
@@ -311,6 +316,7 @@ public static class ErpAgentConfigLoader
             options.ReplyEndpoint,
             Clamp(heartbeatMs, 2000, 60000),
             Clamp(pollMs, 150, 5000),
+            Clamp(pollWaitMs, 0, 15000),
             Clamp(pollMax, 1, 25),
             string.IsNullOrWhiteSpace(version) ? options.Version : version.Trim()
         );

@@ -59,6 +59,12 @@ public sealed class ErpAgentService : BackgroundService
         var heartbeatInterval = TimeSpan.FromMilliseconds(config.HeartbeatIntervalMs);
         var pollInterval = TimeSpan.FromMilliseconds(config.PollIntervalMs);
         var client = _clientFactory.CreateClient("zebra");
+        var pollWaitMs = Math.Clamp(config.PollWaitMs, 0, 15000);
+        var maxWaitMs = (int)Math.Max(0, client.Timeout.TotalMilliseconds - 500);
+        if (maxWaitMs > 0 && pollWaitMs > maxWaitMs)
+        {
+            pollWaitMs = maxWaitMs;
+        }
 
         var nextHeartbeatAt = DateTimeOffset.UtcNow;
         var nextPollAt = DateTimeOffset.UtcNow;
@@ -100,11 +106,13 @@ public sealed class ErpAgentService : BackgroundService
 
             if (now >= nextPollAt)
             {
+                var pollSucceeded = false;
                 try
                 {
-                    var commands = await PollAsync(client, config, stoppingToken);
+                    var commands = await PollAsync(client, config, pollWaitMs, stoppingToken);
                     await ProcessCommandsAsync(client, config, commands, stoppingToken);
                     pollFailCount = 0;
+                    pollSucceeded = true;
                 }
                 catch (Exception ex)
                 {
@@ -129,11 +137,18 @@ public sealed class ErpAgentService : BackgroundService
                         }
                     }
                 }
-                var backoff = pollFailCount == 0
-                    ? pollInterval
-                    : TimeSpan.FromMilliseconds(Math.Min(30000, pollInterval.TotalMilliseconds * Math.Pow(2, pollFailCount)));
-                var jitter = TimeSpan.FromMilliseconds(Random.Shared.Next(0, 250));
-                nextPollAt = now + backoff + jitter;
+                if (pollSucceeded)
+                {
+                    nextPollAt = pollWaitMs > 0 ? now : now + pollInterval;
+                }
+                else
+                {
+                    var backoff = pollFailCount == 0
+                        ? pollInterval
+                        : TimeSpan.FromMilliseconds(Math.Min(30000, pollInterval.TotalMilliseconds * Math.Pow(2, pollFailCount)));
+                    var jitter = TimeSpan.FromMilliseconds(Random.Shared.Next(0, 250));
+                    nextPollAt = now + backoff + jitter;
+                }
             }
 
             if (authFailed)
@@ -203,6 +218,7 @@ public sealed class ErpAgentService : BackgroundService
     private async Task<IReadOnlyList<ErpCommand>> PollAsync(
         HttpClient client,
         ErpAgentRuntimeConfig config,
+        int waitMs,
         CancellationToken token)
     {
         var payload = new Dictionary<string, object?>
@@ -211,6 +227,10 @@ public sealed class ErpAgentService : BackgroundService
             ["max"] = config.PollMax,
             ["ts"] = NowMs()
         };
+        if (waitMs > 0)
+        {
+            payload["wait_ms"] = waitMs;
+        }
 
         var message = await PostFrappeAsync(
             client,
