@@ -489,10 +489,10 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
                     {
                         var boostActive = scaleBoostUntil > nowMs;
                         var status = boostActive ? "refresh" : "waiting";
-                        var pulse = boostActive ? $" {beatFrames[beatIndex]}" : string.Empty;
+                        var boostPulse = boostActive ? $" {beatFrames[beatIndex]}" : string.Empty;
                         scaleLine = string.IsNullOrWhiteSpace(port)
-                            ? $"Scale: connected ({status}){pulse}"
-                            : $"Scale: connected ({status}){pulse} {port}";
+                            ? $"Scale: connected ({status}){boostPulse}"
+                            : $"Scale: connected ({status}){boostPulse} {port}";
                     }
                     else
                     {
