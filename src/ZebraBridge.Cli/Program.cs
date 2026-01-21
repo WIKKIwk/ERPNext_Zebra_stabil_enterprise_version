@@ -464,8 +464,20 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
                 }
                 else
                 {
-                    var error = scale.TryGetProperty("error", out var err) ? err.GetString() : "no data";
-                    scaleLine = $"Scale: {error}";
+                    var ok = scale.TryGetProperty("ok", out var okElement) && okElement.ValueKind == JsonValueKind.True;
+                    var port = scale.TryGetProperty("port", out var portElement) ? portElement.GetString() : "";
+                    var error = scale.TryGetProperty("error", out var err) ? err.GetString() : "";
+                    if (ok)
+                    {
+                        scaleLine = string.IsNullOrWhiteSpace(port)
+                            ? "Scale: connected (waiting)"
+                            : $"Scale: connected (waiting) {port}";
+                    }
+                    else
+                    {
+                        var message = string.IsNullOrWhiteSpace(error) ? "waiting" : error;
+                        scaleLine = $"Scale: {message}";
+                    }
                 }
             }
             catch (Exception ex)
