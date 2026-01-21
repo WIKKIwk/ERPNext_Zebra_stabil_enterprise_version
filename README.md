@@ -91,6 +91,18 @@ Optional env:
 - `ZEBRA_DAEMON_PID` (default `logs/zebra-web.pid`)
 - `ZEBRA_SCALE_RECONNECT_IDLE_SEC` (default `3.0`, set 0 to disable)
 
+Cleanup local build artifacts to save disk space:
+
+```
+./clean.sh
+```
+
+Dry run:
+
+```
+./clean.sh --dry-run
+```
+
 ## Example Calls
 
 Encode a single EPC:
