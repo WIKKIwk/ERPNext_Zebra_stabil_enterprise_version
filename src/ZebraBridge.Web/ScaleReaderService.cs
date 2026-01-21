@@ -102,7 +102,11 @@ public sealed class ScaleReaderService : BackgroundService
         bool? lastStable = null;
         var idleTimeout = GetReconnectIdleTimeout();
         var lastDataAt = DateTimeOffset.UtcNow;
-        var hadData = false;
+
+        bool ShouldReconnectOnIdle()
+        {
+            return idleTimeout.HasValue && DateTimeOffset.UtcNow - lastDataAt > idleTimeout.Value;
+        }
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -113,8 +117,7 @@ public sealed class ScaleReaderService : BackgroundService
             }
             catch (TimeoutException)
             {
-                if (idleTimeout.HasValue && hadData &&
-                    DateTimeOffset.UtcNow - lastDataAt > idleTimeout.Value)
+                if (ShouldReconnectOnIdle())
                 {
                     UpdateError("Scale idle timeout; reconnecting.", port.PortName);
                     return;
@@ -123,8 +126,7 @@ public sealed class ScaleReaderService : BackgroundService
             }
             catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
             {
-                if (idleTimeout.HasValue && hadData &&
-                    DateTimeOffset.UtcNow - lastDataAt > idleTimeout.Value)
+                if (ShouldReconnectOnIdle())
                 {
                     UpdateError("Scale idle timeout; reconnecting.", port.PortName);
                     return;
@@ -144,8 +146,7 @@ public sealed class ScaleReaderService : BackgroundService
 
             if (read <= 0)
             {
-                if (idleTimeout.HasValue && hadData &&
-                    DateTimeOffset.UtcNow - lastDataAt > idleTimeout.Value)
+                if (ShouldReconnectOnIdle())
                 {
                     UpdateError("Scale idle timeout; reconnecting.", port.PortName);
                     return;
@@ -154,7 +155,6 @@ public sealed class ScaleReaderService : BackgroundService
             }
 
             lastDataAt = DateTimeOffset.UtcNow;
-            hadData = true;
             var text = Encoding.ASCII.GetString(buffer, 0, read);
             if (string.IsNullOrWhiteSpace(text))
             {
