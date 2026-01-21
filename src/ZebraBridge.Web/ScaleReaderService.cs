@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Globalization;
 using System.IO.Ports;
 using System.Text;
@@ -108,7 +109,7 @@ public sealed class ScaleReaderService : BackgroundService
             int read;
             try
             {
-                read = await port.BaseStream.ReadAsync(buffer, stoppingToken);
+                read = await ReadWithTimeoutAsync(port, buffer, stoppingToken);
             }
             catch (TimeoutException)
             {
@@ -119,6 +120,26 @@ public sealed class ScaleReaderService : BackgroundService
                     return;
                 }
                 continue;
+            }
+            catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+            {
+                if (idleTimeout.HasValue && hadData &&
+                    DateTimeOffset.UtcNow - lastDataAt > idleTimeout.Value)
+                {
+                    UpdateError("Scale idle timeout; reconnecting.", port.PortName);
+                    return;
+                }
+                continue;
+            }
+            catch (IOException ex)
+            {
+                UpdateError($"Scale disconnected: {ex.Message}", port.PortName);
+                return;
+            }
+            catch (InvalidOperationException ex)
+            {
+                UpdateError($"Scale disconnected: {ex.Message}", port.PortName);
+                return;
             }
 
             if (read <= 0)
@@ -168,6 +189,25 @@ public sealed class ScaleReaderService : BackgroundService
             ));
 
             await MaybePushAsync(weight, unit, stable, port.PortName, stoppingToken);
+        }
+    }
+
+    private async Task<int> ReadWithTimeoutAsync(SerialPort port, byte[] buffer, CancellationToken stoppingToken)
+    {
+        var timeoutMs = (int)Math.Max(50, _options.TimeoutSec * 1000);
+        using var readCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        if (timeoutMs > 0)
+        {
+            readCts.CancelAfter(timeoutMs);
+        }
+
+        try
+        {
+            return await port.BaseStream.ReadAsync(buffer, readCts.Token);
+        }
+        catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+        {
+            return 0;
         }
     }
 
