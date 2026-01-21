@@ -212,7 +212,8 @@ fi
 if [[ "${1:-}" == "--tui" ]]; then
   shift || true
   LOG_DIR="${LOG_DIR:-${ROOT_DIR}/logs}"
-  LOG_FILE="${LOG_FILE:-${LOG_DIR}/zebra-web.log}"
+  LOG_FILE="${ZEBRA_DAEMON_LOG:-${LOG_DIR}/zebra-web.log}"
+  PID_FILE="${ZEBRA_DAEMON_PID:-${LOG_DIR}/zebra-web.pid}"
   mkdir -p "${LOG_DIR}"
 
   if [[ -z "${ZEBRA_DISABLE_UI:-}" ]]; then
@@ -288,21 +289,39 @@ if [[ "${1:-}" == "--tui" ]]; then
   fi
 
   BASE_URL="http://${WEB_HOST}:${WEB_PORT}"
-  stop_existing_server "${BASE_URL}" "${WEB_PORT}"
+  server_started=0
 
-  "${DOTNET_BIN}" run --project "${ROOT_DIR}/src/ZebraBridge.Web/ZebraBridge.Web.csproj" \
-    > "${LOG_FILE}" 2>&1 &
-
-  SERVER_PID=$!
-  show_boot_animation "${BASE_URL}"
-
-  cleanup() {
-    if kill -0 "${SERVER_PID}" >/dev/null 2>&1; then
-      kill "${SERVER_PID}" >/dev/null 2>&1 || true
+  if [[ -f "${PID_FILE}" ]]; then
+    pid="$(cat "${PID_FILE}" 2>/dev/null || true)"
+    if [[ -n "${pid}" ]] && kill -0 "${pid}" >/dev/null 2>&1; then
+      echo "zebra-bridge already running (pid ${pid})."
+    else
+      rm -f "${PID_FILE}"
     fi
-  }
+  fi
 
-  trap cleanup EXIT INT TERM
+  if [[ ! -f "${PID_FILE}" ]]; then
+    pid="$(find_listening_pid "${WEB_PORT}")"
+    if [[ -n "${pid}" ]]; then
+      if is_zebra_bridge_health "${BASE_URL}" || is_zebra_bridge_process "${pid}"; then
+        echo "zebra-bridge already running (pid ${pid})."
+      else
+        echo "ERROR: Port ${WEB_PORT} is already in use and does not look like zebra-bridge." >&2
+        exit 1
+      fi
+    else
+      nohup "${DOTNET_BIN}" run --project "${ROOT_DIR}/src/ZebraBridge.Web/ZebraBridge.Web.csproj" \
+        > "${LOG_FILE}" 2>&1 &
+      pid=$!
+      echo "${pid}" > "${PID_FILE}"
+      echo "zebra-bridge started (pid ${pid}). Logs: ${LOG_FILE}"
+      server_started=1
+    fi
+  fi
+
+  if [[ "${server_started}" -eq 1 ]]; then
+    show_boot_animation "${BASE_URL}"
+  fi
   "${ROOT_DIR}/cli.sh" tui "${TUI_ARGS[@]}"
   exit 0
 fi

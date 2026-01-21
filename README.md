@@ -69,6 +69,7 @@ Terminal TUI (clean screen, no log spam):
 ```
 
 This starts the web service in the background and opens a clean terminal dashboard.
+The service keeps running after the TUI exits or the terminal closes (use `./stop.sh` to stop).
 On startup it shows an ONLINE/OFFLINE selector. If you choose ONLINE it will ask for:
 
 - ERP URL (where to send data)
@@ -78,7 +79,7 @@ On startup it shows an ONLINE/OFFLINE selector. If you choose ONLINE it will ask
 The answers are saved to `~/.local/state/zebra-bridge/erp-config.json` (or `ZEBRA_ERP_CONFIG_PATH`)
 and the ERP UI (`rfidenter`) can control the device after that.
 
-Background (service-style, survives terminal close):
+Background only (service-style, survives terminal close):
 
 ```
 ./run.sh --daemon
