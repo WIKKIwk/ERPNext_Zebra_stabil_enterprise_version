@@ -342,6 +342,11 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
 
     var scaleIntervalMs = GetEnvInt("ZEBRA_TUI_SCALE_MS", 100, 20, 1000);
     var refreshIntervalMs = GetEnvInt("ZEBRA_TUI_REFRESH_MS", 50, 20, 500);
+    var scaleBoostMs = GetEnvInt("ZEBRA_TUI_SCALE_BOOST_MS", 1200, 200, 5000);
+    var scaleBoostPollMs = GetEnvInt("ZEBRA_TUI_SCALE_BOOST_POLL_MS", 50, 20, 200);
+    var scaleBoostUntil = 0L;
+    var scaleOk = false;
+    var scalePort = string.Empty;
 
     var lastHealthAt = 0L;
     var lastConfigAt = 0L;
@@ -380,6 +385,12 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
         {
             beatIndex = (beatIndex + 1) % beatFrames.Length;
             lastBeatAt = nowMs;
+        }
+
+        var scalePollMs = scaleIntervalMs;
+        if (scaleBoostUntil > nowMs || !scaleOk)
+        {
+            scalePollMs = Math.Min(scalePollMs, scaleBoostPollMs);
         }
 
         if (nowMs - lastHealthAt >= 1000)
@@ -447,11 +458,21 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
             lastPrinterAt = nowMs;
         }
 
-        if (nowMs - lastScaleAt >= scaleIntervalMs)
+        if (nowMs - lastScaleAt >= scalePollMs)
         {
             try
             {
                 var scale = await GetJsonAsync(client, "/api/v1/scale");
+                var ok = scale.TryGetProperty("ok", out var okElement) && okElement.ValueKind == JsonValueKind.True;
+                var port = scale.TryGetProperty("port", out var portElement) ? portElement.GetString() : "";
+                port ??= string.Empty;
+                if (ok && (!scaleOk || !string.Equals(scalePort, port, StringComparison.OrdinalIgnoreCase)))
+                {
+                    scaleBoostUntil = nowMs + scaleBoostMs;
+                }
+                scaleOk = ok;
+                scalePort = port;
+
                 if (scale.TryGetProperty("weight", out var weightElement) && weightElement.ValueKind == JsonValueKind.Number)
                 {
                     var weight = weightElement.GetDouble();
@@ -459,19 +480,19 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
                     var stable = scale.TryGetProperty("stable", out var stableElement) && stableElement.ValueKind != JsonValueKind.Null
                         ? (stableElement.GetBoolean() ? "stable" : "unstable")
                         : "unverified";
-                    var port = scale.TryGetProperty("port", out var portElement) ? portElement.GetString() : "";
                     scaleLine = $"Scale: {weight:0.000} {unit} ({stable}) {port}";
                 }
                 else
                 {
-                    var ok = scale.TryGetProperty("ok", out var okElement) && okElement.ValueKind == JsonValueKind.True;
-                    var port = scale.TryGetProperty("port", out var portElement) ? portElement.GetString() : "";
                     var error = scale.TryGetProperty("error", out var err) ? err.GetString() : "";
                     if (ok)
                     {
+                        var boostActive = scaleBoostUntil > nowMs;
+                        var status = boostActive ? "refresh" : "waiting";
+                        var pulse = boostActive ? $" {beatFrames[beatIndex]}" : string.Empty;
                         scaleLine = string.IsNullOrWhiteSpace(port)
-                            ? "Scale: connected (waiting)"
-                            : $"Scale: connected (waiting) {port}";
+                            ? $"Scale: connected ({status}){pulse}"
+                            : $"Scale: connected ({status}){pulse} {port}";
                     }
                     else
                     {
@@ -483,6 +504,8 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
             catch (Exception ex)
             {
                 scaleLine = $"Scale: ERROR ({ex.Message})";
+                scaleOk = false;
+                scalePort = string.Empty;
             }
             lastScaleAt = nowMs;
         }
