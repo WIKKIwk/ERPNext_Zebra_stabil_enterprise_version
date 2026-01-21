@@ -47,8 +47,8 @@ On Linux, run:
 ./run.sh
 ```
 
-The script downloads .NET 8 locally into `.dotnet/` if `dotnet` is not already installed
-(requires `curl` or `wget`).
+The script uses system `dotnet` if available. If not, it downloads .NET 8 into
+`~/.cache/zebra-bridge/dotnet` (or `XDG_CACHE_HOME`), and you can override with `DOTNET_DIR`.
 
 API base URL: `http://127.0.0.1:18000`.
 
