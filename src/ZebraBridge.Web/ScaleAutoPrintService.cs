@@ -21,6 +21,7 @@ public sealed class ScaleAutoPrintService : BackgroundService
     private bool _awaitingEmpty = true;
     private long _stableSinceMs;
     private double? _lastWeight;
+    private double? _lastPrintedWeight;
 
     public ScaleAutoPrintService(
         ScaleOptions options,
@@ -95,14 +96,16 @@ public sealed class ScaleAutoPrintService : BackgroundService
 
         if (weight <= _options.AutoPrintEmptyThreshold)
         {
-            _awaitingEmpty = false;
-            _stableSinceMs = 0;
-            _lastWeight = weight;
+            ResetAwaitingEmpty(weight);
             return;
         }
 
         if (_awaitingEmpty)
         {
+            if (ShouldResetAfterDrop(weight))
+            {
+                ResetAwaitingEmpty(weight);
+            }
             return;
         }
 
@@ -167,9 +170,33 @@ public sealed class ScaleAutoPrintService : BackgroundService
             await ReportPrintEventAsync(snapshot, tag, deviceId, token);
         }
 
+        _lastPrintedWeight = weight;
         _awaitingEmpty = true;
         _stableSinceMs = 0;
         _lastWeight = weight;
+    }
+
+    private void ResetAwaitingEmpty(double weight)
+    {
+        _awaitingEmpty = false;
+        _stableSinceMs = 0;
+        _lastWeight = weight;
+    }
+
+    private bool ShouldResetAfterDrop(double weight)
+    {
+        if (_lastPrintedWeight is null)
+        {
+            return false;
+        }
+
+        var delta = Math.Max(0, _options.AutoPrintResetDelta);
+        if (delta <= 0)
+        {
+            return false;
+        }
+
+        return _lastPrintedWeight.Value - weight >= delta;
     }
 
     private async Task<DeviceSnapshot?> GetDeviceSnapshotAsync(string deviceId, CancellationToken token)

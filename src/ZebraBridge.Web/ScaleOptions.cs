@@ -22,6 +22,7 @@ public sealed class ScaleOptions
     public int AutoPrintStableMs { get; set; } = 1000;
     public double AutoPrintPlacementMinWeight { get; set; } = 0.1;
     public double AutoPrintEmptyThreshold { get; set; } = 0.05;
+    public double AutoPrintResetDelta { get; set; } = 0.1;
     public int AutoPrintPollMs { get; set; } = 200;
 
     public void ApplyEnvironment()
@@ -46,6 +47,7 @@ public sealed class ScaleOptions
         AutoPrintStableMs = OverrideInt(AutoPrintStableMs, "ZEBRA_AUTOPRINT_STABLE_MS");
         AutoPrintPlacementMinWeight = OverrideDouble(AutoPrintPlacementMinWeight, "ZEBRA_AUTOPRINT_MIN_WEIGHT");
         AutoPrintEmptyThreshold = OverrideDouble(AutoPrintEmptyThreshold, "ZEBRA_AUTOPRINT_EMPTY_THRESHOLD");
+        AutoPrintResetDelta = OverrideDouble(AutoPrintResetDelta, "ZEBRA_AUTOPRINT_RESET_DELTA");
         AutoPrintPollMs = OverrideInt(AutoPrintPollMs, "ZEBRA_AUTOPRINT_POLL_MS");
     }
 
