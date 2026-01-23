@@ -11,6 +11,9 @@ public sealed class ErpWorker
     private const long WaitPrintBaseMs = 2000;
     private const long WaitPrintMaxMs = 30000;
     private const long MaxWaitPrintAgeMs = 30 * 60 * 1000;
+    private const long RetryBaseMs = 1000;
+    private const long RetryMaxMs = 60000;
+    private const int RetryMaxExponent = 6;
 
     public ErpWorker(ErpOutboxStore erpOutbox, PrintOutboxStore printOutbox, IErpClient client, SemaphoreSlim signal)
     {
@@ -67,7 +70,13 @@ public sealed class ErpWorker
 
     private static long WaitPrintBackoffMs(int waitPrintChecks)
     {
-        var backoff = (long)(WaitPrintBaseMs * Math.Pow(2, Math.Max(0, waitPrintChecks)));
+        if (waitPrintChecks < 0)
+        {
+            waitPrintChecks = 0;
+        }
+
+        var exponent = Math.Min(waitPrintChecks, 4);
+        var backoff = WaitPrintBaseMs * (1L << exponent);
         return Math.Min(WaitPrintMaxMs, backoff);
     }
 
@@ -78,8 +87,19 @@ public sealed class ErpWorker
 
     private static long BackoffMs(int attempts)
     {
-        var backoff = Math.Min(60000, (int)Math.Pow(2, attempts - 1) * 1000);
-        return backoff;
+        if (attempts <= 0)
+        {
+            attempts = 1;
+        }
+
+        var exponent = Math.Clamp(attempts - 1, 0, RetryMaxExponent);
+        var backoff = RetryBaseMs * (1L << exponent);
+        backoff = Math.Min(RetryMaxMs, backoff);
+
+        var jitterMax = (int)Math.Min(250, backoff / 10 + 1);
+        var jitter = Random.Shared.Next(0, jitterMax);
+
+        return Math.Min(RetryMaxMs, backoff + jitter);
     }
 }
 
