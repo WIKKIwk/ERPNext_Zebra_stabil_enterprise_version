@@ -32,7 +32,20 @@ public sealed class PrintWorker
         {
             await _signal.WaitAsync(TimeSpan.FromMilliseconds(200), cancellationToken);
             var nowMs = NowMs();
-            var job = await _printOutbox.FetchNextAsync(nowMs);
+            PrintJob? job;
+            try
+            {
+                job = await _printOutbox.FetchNextAsync(nowMs);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                await Task.Delay(500, cancellationToken);
+                continue;
+            }
             if (job == null)
             {
                 continue;
@@ -42,6 +55,10 @@ public sealed class PrintWorker
             {
                 await _transport.SendAsync(job.PayloadJson, cancellationToken);
                 await _printOutbox.MarkStatusAsync(job.EventId, PrintJobStatus.Sent, NowMs());
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -106,7 +123,20 @@ public sealed class PrintWorker
     {
         for (var attempt = 0; attempt < 3; attempt++)
         {
-            var status = await _transport.ProbeStatusAsync(cancellationToken);
+            PrinterStatus status;
+            try
+            {
+                status = await _transport.ProbeStatusAsync(cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                await Task.Delay(200, cancellationToken);
+                continue;
+            }
             var pause = GetPauseReason(status);
             if (pause is not null)
             {
@@ -127,7 +157,20 @@ public sealed class PrintWorker
         var start = NowMs();
         while (NowMs() - start <= 5000)
         {
-            var status = await _transport.ProbeStatusAsync(cancellationToken);
+            PrinterStatus status;
+            try
+            {
+                status = await _transport.ProbeStatusAsync(cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                await Task.Delay(250, cancellationToken);
+                continue;
+            }
             var pause = GetPauseReason(status);
             if (pause is not null)
             {

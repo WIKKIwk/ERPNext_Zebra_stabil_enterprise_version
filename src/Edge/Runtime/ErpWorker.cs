@@ -29,13 +29,40 @@ public sealed class ErpWorker
         {
             await _signal.WaitAsync(TimeSpan.FromMilliseconds(200), cancellationToken);
             var nowMs = NowMs();
-            var job = await _erpOutbox.FetchNextAsync(nowMs);
+            ErpJob? job;
+            try
+            {
+                job = await _erpOutbox.FetchNextAsync(nowMs);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                await Task.Delay(500, cancellationToken);
+                continue;
+            }
             if (job == null)
             {
                 continue;
             }
 
-            var printStatus = await _printOutbox.GetStatusAsync(job.EventId);
+            string? printStatus;
+            try
+            {
+                printStatus = await _printOutbox.GetStatusAsync(job.EventId);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                var nextRetry = NowMs() + BackoffMs(job.Attempts + 1);
+                await _erpOutbox.MarkRetryAsync(job.EventId, nextRetry, ex.Message, NowMs());
+                continue;
+            }
             if (!IsPrintCompleted(printStatus))
             {
                 var createdAtMs = job.CreatedAtMs <= 0 ? nowMs : job.CreatedAtMs;
@@ -51,7 +78,21 @@ public sealed class ErpWorker
                 continue;
             }
 
-            var result = await _client.PostEventAsync(job.PayloadJson, cancellationToken);
+            ErpResult result;
+            try
+            {
+                result = await _client.PostEventAsync(job.PayloadJson, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                var nextRetry = NowMs() + BackoffMs(job.Attempts + 1);
+                await _erpOutbox.MarkRetryAsync(job.EventId, nextRetry, ex.Message, NowMs());
+                continue;
+            }
             if (result == ErpResult.Ok || result == ErpResult.Conflict)
             {
                 await _erpOutbox.MarkStatusAsync(job.EventId, ErpJobStatus.Done, NowMs());
