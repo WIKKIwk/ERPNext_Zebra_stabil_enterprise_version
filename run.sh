@@ -114,6 +114,20 @@ is_zebra_bridge_process() {
   ps -p "${pid}" -o comm= 2>/dev/null | tr -d '[:space:]' | grep -qi "ZebraBridge.Web"
 }
 
+start_detached_server() {
+  local log_file="$1"
+  local -a cmd
+  cmd=("${DOTNET_BIN}" run --project "${ROOT_DIR}/src/ZebraBridge.Web/ZebraBridge.Web.csproj")
+
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "${cmd[@]}" > "${log_file}" 2>&1 < /dev/null &
+  else
+    nohup "${cmd[@]}" > "${log_file}" 2>&1 < /dev/null &
+  fi
+
+  echo "$!"
+}
+
 stop_existing_server() {
   local base_url="$1"
   local port="$2"
@@ -209,15 +223,34 @@ if [[ "${1:-}" == "--daemon" || "${1:-}" == "--service" ]]; then
   BASE_URL="http://${WEB_HOST}:${WEB_PORT}"
   stop_existing_server "${BASE_URL}" "${WEB_PORT}"
 
-  nohup "${DOTNET_BIN}" run --project "${ROOT_DIR}/src/ZebraBridge.Web/ZebraBridge.Web.csproj" \
-    > "${LOG_FILE}" 2>&1 &
-  pid=$!
+  pid="$(start_detached_server "${LOG_FILE}")"
   echo "${pid}" > "${PID_FILE}"
   echo "zebra-bridge started (pid ${pid}). Logs: ${LOG_FILE}"
   exit 0
 fi
 
 if [[ "${1:-}" == "--tui" ]]; then
+  use_screen="${ZEBRA_TUI_SCREEN:-0}"
+  for arg in "$@"; do
+    case "${arg}" in
+      --screen)
+        use_screen=1
+        ;;
+      --no-screen)
+        use_screen=0
+        ;;
+    esac
+  done
+  if [[ "${use_screen}" != "0" && -z "${STY:-}" && -z "${TMUX:-}" && -t 0 && -t 1 && -t 2 ]]; then
+    if command -v screen >/dev/null 2>&1; then
+      session="${ZEBRA_TUI_SESSION:-zebra-tui}"
+      if ! screen -ls 2>/dev/null | grep -q "[.]${session}[[:space:]]"; then
+        screen -S "${session}" -d -m "${ROOT_DIR}/run.sh" --tui --no-screen "$@"
+      fi
+      exec screen -S "${session}" -x
+    fi
+  fi
+
   shift || true
   LOG_DIR="${LOG_DIR:-${ROOT_DIR}/logs}"
   LOG_FILE="${ZEBRA_DAEMON_LOG:-${LOG_DIR}/zebra-web.log}"
@@ -263,6 +296,8 @@ if [[ "${1:-}" == "--tui" ]]; then
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --no-screen|--screen)
+        ;;
       --setup)
         FORCE_SETUP=1
         ;;
@@ -318,9 +353,7 @@ if [[ "${1:-}" == "--tui" ]]; then
         exit 1
       fi
     else
-      nohup "${DOTNET_BIN}" run --project "${ROOT_DIR}/src/ZebraBridge.Web/ZebraBridge.Web.csproj" \
-        > "${LOG_FILE}" 2>&1 &
-      pid=$!
+      pid="$(start_detached_server "${LOG_FILE}")"
       echo "${pid}" > "${PID_FILE}"
       echo "zebra-bridge started (pid ${pid}). Logs: ${LOG_FILE}"
       server_started=1
