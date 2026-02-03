@@ -156,7 +156,7 @@ public sealed class ScaleAutoPrintService : BackgroundService
         }
 
         var requestId = $"auto-{deviceId}-{nowMs}";
-        var tag = await CreateItemTagAsync(snapshot.CurrentProduct, weight, requestId, token);
+        var tag = await CreateItemTagAsync(snapshot.CurrentProduct, weight, requestId, deviceId, snapshot.CurrentBatch, token);
         if (tag is null)
         {
             return;
@@ -263,7 +263,13 @@ public sealed class ScaleAutoPrintService : BackgroundService
         await PostJsonAsync("rfidenter.edge_event_report", payload, token);
     }
 
-    private async Task<ItemTag?> CreateItemTagAsync(string itemCode, double weight, string requestId, CancellationToken token)
+    private async Task<ItemTag?> CreateItemTagAsync(
+        string itemCode,
+        double weight,
+        string requestId,
+        string deviceId,
+        string batchId,
+        CancellationToken token)
     {
         var payload = new Dictionary<string, object>
         {
@@ -271,7 +277,9 @@ public sealed class ScaleAutoPrintService : BackgroundService
             ["qty"] = Math.Round(weight, 3),
             ["uom"] = "",
             ["consume_ant_id"] = 0,
-            ["client_request_id"] = requestId
+            ["client_request_id"] = requestId,
+            ["device_id"] = deviceId,
+            ["batch_id"] = batchId
         };
 
         var doc = await PostJsonAsync("rfidenter.rfidenter.api.zebra_create_item_tag", payload, token);
