@@ -81,7 +81,6 @@ public sealed class ErpAgentService : BackgroundService
                 try
                 {
                     await RegisterAsync(client, config, stoppingToken);
-                    authFailed = false;
                 }
                 catch (Exception ex)
                 {
@@ -114,7 +113,6 @@ public sealed class ErpAgentService : BackgroundService
                     await ProcessCommandsAsync(client, config, commands, stoppingToken);
                     pollFailCount = 0;
                     pollSucceeded = true;
-                    authFailed = false;
                 }
                 catch (Exception ex)
                 {
@@ -153,6 +151,11 @@ public sealed class ErpAgentService : BackgroundService
                 }
             }
 
+            if (authFailed)
+            {
+                break;
+            }
+
             var nextTick = nextHeartbeatAt < nextPollAt ? nextHeartbeatAt : nextPollAt;
             var delay = nextTick - now;
             if (delay > TimeSpan.Zero)
@@ -186,7 +189,6 @@ public sealed class ErpAgentService : BackgroundService
         var payload = new Dictionary<string, object?>
         {
             ["agent_id"] = config.AgentId,
-            ["agent_uid"] = config.AgentUid,
             ["device"] = config.Device,
             ["ui_urls"] = BuildUiUrls(),
             ["ui_host"] = Environment.GetEnvironmentVariable("ZEBRA_WEB_HOST") ?? string.Empty,
@@ -222,8 +224,6 @@ public sealed class ErpAgentService : BackgroundService
         var payload = new Dictionary<string, object?>
         {
             ["agent_id"] = config.AgentId,
-            ["agent_uid"] = config.AgentUid,
-            ["kind"] = "zebra",
             ["max"] = config.PollMax,
             ["ts"] = NowMs()
         };
@@ -457,8 +457,6 @@ public sealed class ErpAgentService : BackgroundService
         var payload = new Dictionary<string, object?>
         {
             ["agent_id"] = config.AgentId,
-            ["agent_uid"] = config.AgentUid,
-            ["kind"] = "zebra",
             ["request_id"] = requestId,
             ["ok"] = ok,
             ["result"] = ok ? result : null,

@@ -9,7 +9,6 @@ public sealed record ErpAgentRuntimeConfig(
     string AuthHeader,
     string Secret,
     string AgentId,
-    string AgentUid,
     string Device,
     string RegisterEndpoint,
     string PollEndpoint,
@@ -159,7 +158,6 @@ public static class ErpAgentConfigLoader
             auth: options.Auth,
             secret: options.Secret,
             agentId: options.AgentId,
-            agentUid: options.AgentUid,
             device: options.Device,
             enabled: true,
             heartbeatMs: options.HeartbeatIntervalMs,
@@ -189,7 +187,6 @@ public static class ErpAgentConfigLoader
         var auth = GetString(profile, "auth", GetString(profile, "authorization", GetString(root, "auth", "")));
         var secret = GetString(profile, "secret", GetString(root, "secret", ""));
         var agentId = GetString(profile, "agentId", GetString(profile, "agent_id", ""));
-        var agentUid = GetString(profile, "agentUid", GetString(profile, "agent_uid", GetString(root, "agentUid", GetString(root, "agent_uid", ""))));
         var device = GetString(profile, "device", GetString(root, "device", ""));
         var enabled = GetBool(profile, "enabled", true);
 
@@ -199,7 +196,6 @@ public static class ErpAgentConfigLoader
             auth = Environment.GetEnvironmentVariable("ZEBRA_ERP_AUTH") ?? auth;
             secret = Environment.GetEnvironmentVariable("ZEBRA_ERP_SECRET") ?? secret;
             agentId = Environment.GetEnvironmentVariable("ZEBRA_ERP_AGENT_ID") ?? agentId;
-            agentUid = Environment.GetEnvironmentVariable("ZEBRA_ERP_AGENT_UID") ?? agentUid;
             device = Environment.GetEnvironmentVariable("ZEBRA_ERP_DEVICE") ?? device;
         }
 
@@ -209,7 +205,7 @@ public static class ErpAgentConfigLoader
         var pollMax = GetInt(profile, "pollMax", options.PollMax);
         var version = GetString(profile, "version", options.Version);
 
-        return BuildConfig(options, name, baseUrl, auth, secret, agentId, agentUid, device, enabled, heartbeatMs, pollMs, pollWaitMs, pollMax, version);
+        return BuildConfig(options, name, baseUrl, auth, secret, agentId, device, enabled, heartbeatMs, pollMs, pollWaitMs, pollMax, version);
     }
 
     private static List<ErpAgentRuntimeConfig> BuildFromTargets(ErpAgentOptions options, JsonElement targets)
@@ -229,7 +225,6 @@ public static class ErpAgentConfigLoader
             var auth = GetString(target, "auth", GetString(target, "authorization", ""));
             var secret = GetString(target, "secret", GetString(target, "rfidenter_token", ""));
             var agentId = GetString(target, "agentId", GetString(target, "agent_id", ""));
-            var agentUid = GetString(target, "agentUid", GetString(target, "agent_uid", ""));
             var device = GetString(target, "device", "");
             var enabled = GetBool(target, "enabled", true);
             var heartbeatMs = GetInt(target, "heartbeatMs", options.HeartbeatIntervalMs);
@@ -238,7 +233,7 @@ public static class ErpAgentConfigLoader
             var pollMax = GetInt(target, "pollMax", options.PollMax);
             var version = GetString(target, "version", options.Version);
 
-            var config = BuildConfig(options, name, baseUrl, auth, secret, agentId, agentUid, device, enabled, heartbeatMs, pollMs, pollWaitMs, pollMax, version);
+            var config = BuildConfig(options, name, baseUrl, auth, secret, agentId, device, enabled, heartbeatMs, pollMs, pollWaitMs, pollMax, version);
             if (config is not null)
             {
                 configs.Add(config);
@@ -271,14 +266,10 @@ public static class ErpAgentConfigLoader
                       ?? Environment.GetEnvironmentVariable($"ZEBRA_ERP_{suffix}_AGENT_ID")
                       ?? options.AgentId;
 
-        var agentUid = Environment.GetEnvironmentVariable($"ZEBRA_ERP_AGENT_UID_{suffix}")
-                       ?? Environment.GetEnvironmentVariable($"ZEBRA_ERP_{suffix}_AGENT_UID")
-                       ?? options.AgentUid;
-
         var enabledRaw = Environment.GetEnvironmentVariable($"ZEBRA_ERP_AGENT_ENABLED_{suffix}");
         var enabled = ParseBool(enabledRaw, true);
 
-        return BuildConfig(options, name, baseUrl, auth, secret, agentId, agentUid, device, enabled,
+        return BuildConfig(options, name, baseUrl, auth, secret, agentId, device, enabled,
             options.HeartbeatIntervalMs, options.PollIntervalMs, options.PollWaitMs, options.PollMax, options.Version);
     }
 
@@ -289,7 +280,6 @@ public static class ErpAgentConfigLoader
         string? auth,
         string? secret,
         string? agentId,
-        string? agentUid,
         string? device,
         bool enabled,
         int heartbeatMs,
@@ -312,9 +302,6 @@ public static class ErpAgentConfigLoader
 
         var machine = Environment.MachineName;
         var finalAgentId = string.IsNullOrWhiteSpace(agentId) ? $"zebra-{machine}-{name}" : agentId.Trim();
-        var finalAgentUid = string.IsNullOrWhiteSpace(agentUid)
-            ? (string.IsNullOrWhiteSpace(options.AgentUid) ? AgentIdentity.GetStableAgentUid() : options.AgentUid.Trim())
-            : agentUid.Trim();
         var finalDevice = string.IsNullOrWhiteSpace(device) ? machine : device.Trim();
 
         return new ErpAgentRuntimeConfig(
@@ -323,7 +310,6 @@ public static class ErpAgentConfigLoader
             normalizedAuth,
             secret ?? string.Empty,
             finalAgentId,
-            finalAgentUid,
             finalDevice,
             options.RegisterEndpoint,
             options.PollEndpoint,

@@ -336,11 +336,9 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
     var healthLine = "Health: waiting";
     var configLine = "Config: waiting";
     var scaleLine = "Scale: waiting";
-    var erpLine = "ERP: waiting";
     var printerState = "SEARCHING";
     var printerDetail = "probe pending";
     var printerConnected = false;
-    var healthOk = false;
 
     var scaleIntervalMs = GetEnvInt("ZEBRA_TUI_SCALE_MS", 100, 20, 1000);
     var refreshIntervalMs = GetEnvInt("ZEBRA_TUI_REFRESH_MS", 50, 20, 500);
@@ -354,15 +352,9 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
     var lastConfigAt = 0L;
     var lastPrinterAt = 0L;
     var lastScaleAt = 0L;
-    var lastErpAt = 0L;
     var lastBeatAt = 0L;
     var beatIndex = 0;
     var beatFrames = new[] { ".", "o", "O", "o" };
-    var erpHeartbeatMs = GetEnvInt("ZEBRA_TUI_ERP_HEARTBEAT_MS", 10_000, 2000, 60_000);
-    var erpTimeoutMs = GetEnvInt("ZEBRA_TUI_ERP_TIMEOUT_MS", 2500, 200, 15000);
-    var erpConnectTimeoutMs = GetEnvInt("ZEBRA_TUI_ERP_CONNECT_TIMEOUT_MS", 800, 200, 10000);
-    HttpClient? erpClient = null;
-    string? erpClientBaseUrl = null;
 
     while (!exit)
     {
@@ -408,12 +400,10 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
                 var health = await GetJsonAsync(client, "/api/v1/health");
                 var service = health.TryGetProperty("service", out var svc) ? svc.GetString() : "service";
                 var ok = health.TryGetProperty("ok", out var okValue) && okValue.GetBoolean();
-                healthOk = ok;
                 healthLine = $"Health: {(ok ? "OK" : "FAIL")} ({service})";
             }
             catch (Exception ex)
             {
-                healthOk = false;
                 healthLine = $"Health: ERROR ({ex.Message})";
             }
             lastHealthAt = nowMs;
@@ -520,34 +510,6 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
             lastScaleAt = nowMs;
         }
 
-        if (healthOk && nowMs - lastErpAt >= erpHeartbeatMs)
-        {
-            var target = TryLoadErpHeartbeatTarget();
-            if (target is null)
-            {
-                erpLine = "ERP: OFFLINE (config missing)";
-            }
-            else
-            {
-                if (!string.Equals(erpClientBaseUrl, target.BaseUrl, StringComparison.OrdinalIgnoreCase))
-                {
-                    erpClient?.Dispose();
-                    erpClient = BuildErpClient(erpTimeoutMs, erpConnectTimeoutMs);
-                    erpClientBaseUrl = target.BaseUrl;
-                }
-                try
-                {
-                    var error = await SendErpHeartbeatAsync(erpClient!, target, baseUrl);
-                    erpLine = string.IsNullOrWhiteSpace(error) ? "ERP: OK" : $"ERP: ERROR ({TrimForTui(error)})";
-                }
-                catch (Exception ex)
-                {
-                    erpLine = $"ERP: ERROR ({TrimForTui(ex.Message)})";
-                }
-            }
-            lastErpAt = nowMs;
-        }
-
         var modeLine = GetModeLine();
         var pulse = beatFrames[beatIndex];
         var statusBadge = printerConnected ? "OK" : "WAIT";
@@ -561,7 +523,6 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
         Console.WriteLine($"{modeLine}");
         Console.WriteLine("----------------------------------------------");
         Console.WriteLine(healthLine);
-        Console.WriteLine(erpLine);
         Console.WriteLine(configLine);
         Console.WriteLine(printerLine);
         Console.WriteLine(scaleLine);
@@ -603,150 +564,6 @@ static string GetModeLine()
     return $"Mode: ONLINE ({baseUrl}){device}";
 }
 
-static ErpHeartbeatTarget? TryLoadErpHeartbeatTarget()
-{
-    var profile = TryLoadErpProfile();
-    if (profile is null || !profile.RpcEnabled || !profile.Enabled)
-    {
-        return null;
-    }
-
-    var baseUrl = NormalizeBaseUrl(profile.BaseUrl);
-    var auth = NormalizeAuth(profile.Auth);
-    var secretHeader = string.IsNullOrWhiteSpace(profile.Secret) ? auth : profile.Secret.Trim();
-    if (string.IsNullOrWhiteSpace(baseUrl))
-    {
-        return null;
-    }
-    if (string.IsNullOrWhiteSpace(auth) && string.IsNullOrWhiteSpace(secretHeader))
-    {
-        return null;
-    }
-
-    var name = string.IsNullOrWhiteSpace(profile.Name) ? "default" : profile.Name.Trim();
-    var machine = Environment.MachineName;
-    var agentId = string.IsNullOrWhiteSpace(profile.AgentId) ? $"zebra-{machine}-{name}" : profile.AgentId.Trim();
-    var device = string.IsNullOrWhiteSpace(profile.Device) ? machine : profile.Device.Trim();
-
-    return new ErpHeartbeatTarget(name, baseUrl, auth, secretHeader, agentId, device);
-}
-
-static HttpClient BuildErpClient(int timeoutMs, int connectTimeoutMs)
-{
-    var handler = new SocketsHttpHandler
-    {
-        ConnectTimeout = TimeSpan.FromMilliseconds(connectTimeoutMs)
-    };
-    return new HttpClient(handler)
-    {
-        Timeout = TimeSpan.FromMilliseconds(timeoutMs)
-    };
-}
-
-static async Task<string?> SendErpHeartbeatAsync(HttpClient client, ErpHeartbeatTarget target, string localBaseUrl)
-{
-    var payload = BuildErpHeartbeatPayload(target, localBaseUrl);
-    var json = JsonSerializer.Serialize(payload);
-    using var request = new HttpRequestMessage(
-        HttpMethod.Post,
-        $"{target.BaseUrl}/api/method/rfidenter.rfidenter.api.register_agent")
-    {
-        Content = new StringContent(json, Encoding.UTF8, "application/json")
-    };
-    if (!string.IsNullOrWhiteSpace(target.AuthHeader))
-    {
-        request.Headers.TryAddWithoutValidation("Authorization", target.AuthHeader);
-    }
-    if (!string.IsNullOrWhiteSpace(target.SecretHeader))
-    {
-        request.Headers.TryAddWithoutValidation("X-RFIDenter-Token", target.SecretHeader);
-    }
-
-    using var response = await client.SendAsync(request);
-    var body = await response.Content.ReadAsStringAsync();
-    if (!response.IsSuccessStatusCode)
-    {
-        return ParseFrappeError(body, response.StatusCode);
-    }
-    return null;
-}
-
-static Dictionary<string, object?> BuildErpHeartbeatPayload(ErpHeartbeatTarget target, string localBaseUrl)
-{
-    var (uiHost, uiPort, uiUrls) = BuildUiMeta(localBaseUrl);
-    return new Dictionary<string, object?>
-    {
-        ["agent_id"] = target.AgentId,
-        ["agent_uid"] = AgentIdentity.GetStableAgentUid(),
-        ["device"] = target.Device,
-        ["ui_urls"] = uiUrls,
-        ["ui_host"] = uiHost,
-        ["ui_port"] = uiPort,
-        ["platform"] = ResolvePlatform(),
-        ["version"] = "zebra-bridge-v1",
-        ["pid"] = Environment.ProcessId,
-        ["kind"] = "zebra",
-        ["ts"] = NowMs()
-    };
-}
-
-static (string Host, int Port, List<string> Urls) BuildUiMeta(string localBaseUrl)
-{
-    var urls = new List<string>();
-    var trimmed = (localBaseUrl ?? string.Empty).Trim().TrimEnd('/');
-    if (!string.IsNullOrWhiteSpace(trimmed))
-    {
-        urls.Add(trimmed);
-    }
-
-    var host = string.Empty;
-    var port = 0;
-    if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri))
-    {
-        host = uri.Host;
-        port = uri.Port;
-        if (!string.IsNullOrWhiteSpace(host) && host is not "0.0.0.0" and not "::" && port > 0)
-        {
-            var loopback = $"http://127.0.0.1:{port}";
-            if (!urls.Any(u => string.Equals(u, loopback, StringComparison.OrdinalIgnoreCase)))
-            {
-                urls.Add(loopback);
-            }
-        }
-    }
-
-    return (host, port, urls);
-}
-
-static string ResolvePlatform()
-{
-    if (OperatingSystem.IsWindows())
-    {
-        return "windows";
-    }
-    if (OperatingSystem.IsLinux())
-    {
-        return "linux";
-    }
-    if (OperatingSystem.IsMacOS())
-    {
-        return "macos";
-    }
-    return "unknown";
-}
-
-static long NowMs() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
-static string TrimForTui(string? value, int maxLen = 80)
-{
-    var s = (value ?? string.Empty).Trim();
-    if (string.IsNullOrWhiteSpace(s))
-    {
-        return "unknown";
-    }
-    return s.Length <= maxLen ? s : s[..(maxLen - 3)] + "...";
-}
-
 static int GetEnvInt(string key, int fallback, int min, int max)
 {
     var raw = Environment.GetEnvironmentVariable(key);
@@ -763,40 +580,6 @@ static int GetEnvInt(string key, int fallback, int min, int max)
         return min;
     }
     return parsed > max ? max : parsed;
-}
-
-static string ParseFrappeError(string body, System.Net.HttpStatusCode status)
-{
-    if (string.IsNullOrWhiteSpace(body))
-    {
-        return $"HTTP {(int)status}";
-    }
-
-    try
-    {
-        using var doc = JsonDocument.Parse(body);
-        var root = doc.RootElement;
-        if (root.ValueKind == JsonValueKind.Object)
-        {
-            if (root.TryGetProperty("_server_messages", out var serverMessages))
-            {
-                return serverMessages.ToString();
-            }
-            if (root.TryGetProperty("message", out var message))
-            {
-                return message.ToString();
-            }
-            if (root.TryGetProperty("error", out var error))
-            {
-                return error.ToString();
-            }
-        }
-    }
-    catch
-    {
-    }
-
-    return body.Length > 400 ? body[..400] : body;
 }
 
 static int HandleUnknown(string command)
@@ -1101,14 +884,14 @@ static ErpProfile? TryLoadErpProfile()
         var activeProfile = ReadString(erp, "activeProfile", ReadString(erp, "active_profile", "local"));
         if (profiles.ValueKind == JsonValueKind.Object && profiles.TryGetProperty(activeProfile, out var profileElement))
         {
-            return ParseProfile(activeProfile, profileElement);
+            return ParseProfile(profileElement);
         }
 
         if (profiles.ValueKind == JsonValueKind.Object)
         {
             foreach (var profile in profiles.EnumerateObject())
             {
-                var parsed = ParseProfile(profile.Name, profile.Value);
+                var parsed = ParseProfile(profile.Value);
                 if (parsed is not null)
                 {
                     return parsed;
@@ -1124,7 +907,7 @@ static ErpProfile? TryLoadErpProfile()
     return null;
 }
 
-static ErpProfile? ParseProfile(string name, JsonElement profile)
+static ErpProfile? ParseProfile(JsonElement profile)
 {
     if (profile.ValueKind != JsonValueKind.Object)
     {
@@ -1135,11 +918,9 @@ static ErpProfile? ParseProfile(string name, JsonElement profile)
     var enabled = ReadBool(profile, "enabled", true);
     var baseUrl = ReadString(profile, "baseUrl", ReadString(profile, "base_url", string.Empty));
     var auth = ReadString(profile, "auth", ReadString(profile, "authorization", string.Empty));
-    var secret = ReadString(profile, "secret", string.Empty);
-    var agentId = ReadString(profile, "agentId", ReadString(profile, "agent_id", string.Empty));
     var device = ReadString(profile, "device", string.Empty);
 
-    return new ErpProfile(name, rpcEnabled, enabled, baseUrl, auth, secret, agentId, device);
+    return new ErpProfile(rpcEnabled, enabled, baseUrl, auth, device);
 }
 
 static string ReadString(JsonElement element, string name, string fallback)
@@ -1181,22 +962,11 @@ sealed record CliContext(
     EncodeService EncodeService,
     PrinterControlService PrinterControl);
 
-sealed record ErpHeartbeatTarget(
-    string Name,
-    string BaseUrl,
-    string AuthHeader,
-    string SecretHeader,
-    string AgentId,
-    string Device);
-
 sealed record ErpProfile(
-    string Name,
     bool RpcEnabled,
     bool Enabled,
     string BaseUrl,
     string Auth,
-    string Secret,
-    string AgentId,
     string Device);
 
 sealed class ArgParser
