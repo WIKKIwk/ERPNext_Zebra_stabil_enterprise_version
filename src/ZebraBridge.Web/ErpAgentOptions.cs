@@ -7,6 +7,7 @@ public sealed class ErpAgentOptions
     public string? Auth { get; set; }
     public string? Secret { get; set; }
     public string? AgentId { get; set; }
+    public string? AgentUid { get; set; }
     public string? Device { get; set; }
     public string RegisterEndpoint { get; set; } = "/api/method/rfidenter.rfidenter.api.register_agent";
     public string PollEndpoint { get; set; } = "/api/method/rfidenter.rfidenter.api.agent_poll";
@@ -24,6 +25,7 @@ public sealed class ErpAgentOptions
         Auth = Override(Auth, "ZEBRA_ERP_AUTH");
         Secret = Override(Secret, "ZEBRA_ERP_SECRET");
         AgentId = Override(AgentId, "ZEBRA_ERP_AGENT_ID");
+        AgentUid = Override(AgentUid, "ZEBRA_ERP_AGENT_UID");
         Device = Override(Device, "ZEBRA_ERP_DEVICE");
         RegisterEndpoint = Override(RegisterEndpoint, "ZEBRA_ERP_REGISTER_ENDPOINT") ?? RegisterEndpoint;
         PollEndpoint = Override(PollEndpoint, "ZEBRA_ERP_POLL_ENDPOINT") ?? PollEndpoint;
