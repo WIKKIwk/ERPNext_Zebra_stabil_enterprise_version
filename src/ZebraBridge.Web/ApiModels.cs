@@ -7,12 +7,13 @@ public sealed record EncodeRequestDto(
     int Copies = 1,
     bool PrintHumanReadable = false,
     bool? FeedAfterEncode = null,
-    bool DryRun = false
+    bool DryRun = false,
+    IReadOnlyDictionary<string, string>? LabelFields = null
 )
 {
     public EncodeRequest ToServiceRequest(bool feedAfterEncode)
     {
-        return new EncodeRequest(Epc, Copies, PrintHumanReadable, feedAfterEncode, DryRun);
+        return new EncodeRequest(Epc, Copies, PrintHumanReadable, feedAfterEncode, DryRun, LabelFields);
     }
 }
 
@@ -25,7 +26,8 @@ public sealed record EncodeBatchRequestDto(
     IReadOnlyList<EncodeBatchItemDto>? Items = null,
     int AutoCount = 1,
     bool PrintHumanReadable = false,
-    bool? FeedAfterEncode = null
+    bool? FeedAfterEncode = null,
+    IReadOnlyDictionary<string, string>? LabelFields = null
 )
 {
     public EncodeBatchRequest ToServiceRequest(bool feedAfterEncode)
@@ -35,7 +37,8 @@ public sealed record EncodeBatchRequestDto(
             Items?.Select(item => new EncodeBatchItem(item.Epc, item.Copies)).ToList(),
             AutoCount,
             PrintHumanReadable,
-            feedAfterEncode);
+            feedAfterEncode,
+            LabelFields);
     }
 
     private static EncodeBatchMode ParseMode(string? mode)

@@ -423,7 +423,7 @@ public sealed class ErpAgentService : BackgroundService
             }
 
             var batchMode = mode == "auto" ? EncodeBatchMode.Auto : EncodeBatchMode.Manual;
-            var batchRequest = new EncodeBatchRequest(batchMode, items, autoCount, printHuman, feedAfter);
+            var batchRequest = new EncodeBatchRequest(batchMode, items, autoCount, printHuman, feedAfter, null);
             var result = await _encodeService.EncodeBatchAsync(batchRequest, token);
 
             return new Dictionary<string, object?>

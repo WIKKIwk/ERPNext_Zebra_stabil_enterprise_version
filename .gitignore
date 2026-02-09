@@ -2,8 +2,11 @@ bin/
 obj/
 .vs/
 .dotnet/
+.cache/
 logs/
 *.user
 *.suo
 *.userprefs
 *.swp
+run
+zebra_v1.sln

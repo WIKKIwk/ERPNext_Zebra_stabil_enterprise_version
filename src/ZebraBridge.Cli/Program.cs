@@ -107,7 +107,7 @@ static async Task<int> HandleEncodeBatchAsync(CliContext ctx, ArgParser parser)
         }
     }
 
-    var request = new EncodeBatchRequest(mode, items, autoCount, printHuman, feedAfter);
+    var request = new EncodeBatchRequest(mode, items, autoCount, printHuman, feedAfter, null);
     var result = await ctx.EncodeService.EncodeBatchAsync(request);
 
     Console.WriteLine(ToJson(result));
@@ -205,12 +205,16 @@ static int HandleSetup(ArgParser parser)
     {
         mode = "online";
     }
+    else if (parser.HasFlag("extensions"))
+    {
+        mode = "extensions";
+    }
 
     if (string.IsNullOrWhiteSpace(mode))
     {
         if (Console.IsInputRedirected)
         {
-            Console.Error.WriteLine("Error: --online or --offline is required when input is redirected.");
+            Console.Error.WriteLine("Error: --online, --offline, or --extensions is required when input is redirected.");
             return 1;
         }
         return RunSetupWizard(allowSkip: false) ? 0 : 1;
@@ -218,14 +222,21 @@ static int HandleSetup(ArgParser parser)
 
     if (mode == "offline")
     {
-        WriteErpConfig(enabled: false, baseUrl: string.Empty, auth: string.Empty, device: string.Empty);
+        WriteErpConfig(enabled: false, baseUrl: string.Empty, auth: string.Empty, device: string.Empty, mode: "offline");
         Console.WriteLine("ERP mode set to OFFLINE.");
+        return 0;
+    }
+
+    if (mode == "extensions")
+    {
+        WriteErpConfig(enabled: false, baseUrl: string.Empty, auth: string.Empty, device: string.Empty, mode: "extensions");
+        Console.WriteLine("ERP mode set to EXTENSIONS.");
         return 0;
     }
 
     if (mode != "online")
     {
-        Console.Error.WriteLine("Invalid mode. Use --online or --offline.");
+        Console.Error.WriteLine("Invalid mode. Use --online, --offline, or --extensions.");
         return 1;
     }
 
@@ -288,7 +299,7 @@ static int HandleSetup(ArgParser parser)
     }
 
     var normalizedUrl = NormalizeBaseUrl(erpUrl);
-    WriteErpConfig(enabled: true, baseUrl: normalizedUrl, auth: token, device: device ?? deviceDefault);
+    WriteErpConfig(enabled: true, baseUrl: normalizedUrl, auth: token, device: device ?? deviceDefault, mode: "online");
     Console.WriteLine($"ERP mode set to ONLINE. Target: {normalizedUrl}");
     return 0;
 }
@@ -631,7 +642,7 @@ static void PrintUsage()
     Console.WriteLine("  zebra-cli transceive --zpl-file path/to/file.zpl [--timeout ms] [--max bytes]");
     Console.WriteLine("  zebra-cli printer resume|reset");
     Console.WriteLine("  zebra-cli tui [--url http://127.0.0.1:18000] [--setup]");
-    Console.WriteLine("  zebra-cli setup [--online|--offline] [--erp-url URL] [--erp-token TOKEN] [--device NAME]");
+    Console.WriteLine("  zebra-cli setup [--online|--offline|--extensions] [--erp-url URL] [--erp-token TOKEN] [--device NAME]");
     Console.WriteLine("  zebra-cli config");
     Console.WriteLine("  zebra-cli version");
     Console.WriteLine();
@@ -651,12 +662,13 @@ static bool RunSetupWizard(bool allowSkip)
 {
     if (Console.IsInputRedirected)
     {
-        Console.Error.WriteLine("Setup requires an interactive terminal.");
-        return false;
+        WriteErpConfig(enabled: false, baseUrl: string.Empty, auth: string.Empty, device: string.Empty, mode: "extensions");
+        Console.WriteLine("ERP mode set to EXTENSIONS.");
+        return true;
     }
 
     var existing = TryLoadErpProfile();
-    var currentMode = existing is null || !existing.RpcEnabled || !existing.Enabled ? "OFFLINE" : "ONLINE";
+    var currentMode = ResolveModeLabel(existing);
 
     Console.Clear();
     Console.WriteLine("ZebraBridge Setup");
@@ -667,79 +679,10 @@ static bool RunSetupWizard(bool allowSkip)
         Console.WriteLine($"Current ERP : {existing.BaseUrl}");
     }
     Console.WriteLine();
-    Console.WriteLine("Choose mode:");
-    Console.WriteLine("  [1] Online (ERP control)");
-    Console.WriteLine("  [2] Offline (local only)");
-    if (allowSkip)
-    {
-        Console.WriteLine("  [Enter] Keep current");
-    }
-    Console.WriteLine("  [Q] Quit");
+    Console.WriteLine("Mode: By Extensions (LCE) only");
     Console.WriteLine();
-    Console.Write("Select: ");
-
-    while (true)
-    {
-        var key = Console.ReadKey(intercept: true);
-        if (allowSkip && key.Key == ConsoleKey.Enter)
-        {
-            Console.WriteLine();
-            return true;
-        }
-        if (key.Key is ConsoleKey.Q or ConsoleKey.Escape)
-        {
-            Console.WriteLine();
-            return false;
-        }
-        if (key.KeyChar == '1')
-        {
-            Console.WriteLine("Online");
-            break;
-        }
-        if (key.KeyChar == '2')
-        {
-            Console.WriteLine("Offline");
-            WriteErpConfig(enabled: false, baseUrl: string.Empty, auth: string.Empty, device: string.Empty);
-            Console.WriteLine("ERP mode set to OFFLINE.");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
-            return true;
-        }
-    }
-
-    var erpUrl = PromptWithDefault("ERP URL", existing?.BaseUrl);
-    while (string.IsNullOrWhiteSpace(erpUrl))
-    {
-        Console.WriteLine("ERP URL is required for online mode.");
-        erpUrl = Prompt("ERP URL: ");
-    }
-
-    var tokenLabel = string.IsNullOrWhiteSpace(existing?.Auth)
-        ? "ERP Token (api_key:api_secret or 'token ...')"
-        : "ERP Token (leave empty to keep current)";
-    var token = PromptSecret($"{tokenLabel}: ");
-    if (string.IsNullOrWhiteSpace(token))
-    {
-        token = existing?.Auth ?? string.Empty;
-    }
-    while (string.IsNullOrWhiteSpace(token))
-    {
-        Console.WriteLine("ERP Token is required for online mode.");
-        token = PromptSecret("ERP Token: ");
-    }
-
-    var deviceDefault = string.IsNullOrWhiteSpace(existing?.Device) ? Environment.MachineName : existing!.Device;
-    var device = PromptWithDefault("Local device name", deviceDefault);
-    if (string.IsNullOrWhiteSpace(device))
-    {
-        device = deviceDefault;
-    }
-
-    var normalizedUrl = NormalizeBaseUrl(erpUrl);
-    WriteErpConfig(enabled: true, baseUrl: normalizedUrl, auth: token, device: device);
-    Console.WriteLine($"ERP mode set to ONLINE. Target: {normalizedUrl}");
-    Console.WriteLine("Press Enter to continue...");
-    Console.ReadLine();
+    WriteErpConfig(enabled: false, baseUrl: string.Empty, auth: string.Empty, device: string.Empty, mode: "extensions");
+    Console.WriteLine("ERP mode set to EXTENSIONS.");
     return true;
 }
 
@@ -747,6 +690,30 @@ static string PromptWithDefault(string label, string? fallback)
 {
     var value = Prompt(string.IsNullOrWhiteSpace(fallback) ? $"{label}: " : $"{label} [{fallback}]: ");
     return string.IsNullOrWhiteSpace(value) ? (fallback ?? string.Empty) : value;
+}
+
+static string ResolveModeLabel(ErpProfile? profile)
+{
+    if (profile is null)
+    {
+        return "OFFLINE";
+    }
+
+    var mode = (profile.Mode ?? string.Empty).Trim().ToLowerInvariant();
+    if (mode == "extensions")
+    {
+        return "EXTENSIONS";
+    }
+    if (mode == "offline")
+    {
+        return "OFFLINE";
+    }
+    if (mode == "online")
+    {
+        return "ONLINE";
+    }
+
+    return (!profile.RpcEnabled || !profile.Enabled) ? "OFFLINE" : "ONLINE";
 }
 
 static string Prompt(string message)
@@ -791,7 +758,7 @@ static string PromptSecret(string message)
     return buffer.ToString();
 }
 
-static void WriteErpConfig(bool enabled, string baseUrl, string auth, string device)
+static void WriteErpConfig(bool enabled, string baseUrl, string auth, string device, string mode)
 {
     var path = StatePaths.GetErpConfigPath();
     var directory = Path.GetDirectoryName(path);
@@ -807,7 +774,8 @@ static void WriteErpConfig(bool enabled, string baseUrl, string auth, string dev
         ["overrideEnv"] = true,
         ["baseUrl"] = NormalizeBaseUrl(baseUrl),
         ["auth"] = NormalizeAuth(auth),
-        ["device"] = device?.Trim() ?? string.Empty
+        ["device"] = device?.Trim() ?? string.Empty,
+        ["mode"] = mode?.Trim().ToLowerInvariant() ?? string.Empty
     };
 
     var payload = new Dictionary<string, object?>
@@ -919,8 +887,9 @@ static ErpProfile? ParseProfile(JsonElement profile)
     var baseUrl = ReadString(profile, "baseUrl", ReadString(profile, "base_url", string.Empty));
     var auth = ReadString(profile, "auth", ReadString(profile, "authorization", string.Empty));
     var device = ReadString(profile, "device", string.Empty);
+    var mode = ReadString(profile, "mode", string.Empty);
 
-    return new ErpProfile(rpcEnabled, enabled, baseUrl, auth, device);
+    return new ErpProfile(rpcEnabled, enabled, baseUrl, auth, device, mode);
 }
 
 static string ReadString(JsonElement element, string name, string fallback)
@@ -967,7 +936,8 @@ sealed record ErpProfile(
     bool Enabled,
     string BaseUrl,
     string Auth,
-    string Device);
+    string Device,
+    string Mode);
 
 sealed class ArgParser
 {

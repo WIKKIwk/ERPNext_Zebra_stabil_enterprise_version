@@ -8,7 +8,8 @@ public sealed record EncodeRequest(
     int Copies = 1,
     bool PrintHumanReadable = false,
     bool FeedAfterEncode = true,
-    bool DryRun = false
+    bool DryRun = false,
+    IReadOnlyDictionary<string, string>? LabelFields = null
 );
 
 public sealed record EncodeResult(bool Ok, string Message, string? EpcHex = null, string? Zpl = null);
@@ -26,7 +27,8 @@ public sealed record EncodeBatchRequest(
     IReadOnlyList<EncodeBatchItem>? Items = null,
     int AutoCount = 1,
     bool PrintHumanReadable = false,
-    bool FeedAfterEncode = true
+    bool FeedAfterEncode = true,
+    IReadOnlyDictionary<string, string>? LabelFields = null
 );
 
 public sealed record EncodeBatchItemResult(string EpcHex, int Copies, bool Ok, string Message);
@@ -79,7 +81,8 @@ public sealed class EncodeService : IEncodeService
             epcHex,
             options,
             _printerOptions.ZplEol,
-            _printerOptions.RfidZplTemplate);
+            _printerOptions.RfidZplTemplate,
+            request.LabelFields);
 
         if (request.DryRun)
         {
@@ -123,7 +126,8 @@ public sealed class EncodeService : IEncodeService
                         item.Epc,
                         options,
                         _printerOptions.ZplEol,
-                        _printerOptions.RfidZplTemplate);
+                        _printerOptions.RfidZplTemplate,
+                        request.LabelFields);
 
                     await transport.SendAsync(Encoding.ASCII.GetBytes(zpl), cancellationToken);
 

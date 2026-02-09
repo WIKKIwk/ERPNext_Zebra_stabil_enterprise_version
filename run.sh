@@ -12,9 +12,10 @@ if [[ -n "${CACHE_BASE}" ]]; then
 fi
 DOTNET_DIR="${DOTNET_DIR:-${DEFAULT_DOTNET_DIR}}"
 DOTNET_BIN="${DOTNET_BIN:-${DOTNET_DIR}/dotnet}"
-DOTNET_CHANNEL="${DOTNET_CHANNEL:-8.0}"
+DOTNET_CHANNEL="${DOTNET_CHANNEL:-10.0}"
 DOTNET_INSTALL_LOG="${DOTNET_INSTALL_LOG:-${DOTNET_DIR}/dotnet-install.log}"
-WEB_HOST_DEFAULT="127.0.0.1"
+ZEBRA_WEB_NO_BUILD="${ZEBRA_WEB_NO_BUILD:-1}"
+WEB_HOST_DEFAULT="0.0.0.0"
 WEB_PORT_DEFAULT="18000"
 
 download_file() {
@@ -38,7 +39,9 @@ download_file() {
 ensure_dotnet() {
   if command -v dotnet >/dev/null 2>&1; then
     DOTNET_BIN="$(command -v dotnet)"
-    return
+    if "${DOTNET_BIN}" --list-runtimes 2>/dev/null | grep -q "Microsoft.AspNetCore.App 10\\."; then
+      return
+    fi
   fi
 
   mkdir -p "${DOTNET_DIR}"
@@ -57,6 +60,7 @@ ensure_dotnet() {
 
   export DOTNET_ROOT="${DOTNET_DIR}"
   export PATH="${DOTNET_DIR}:${PATH}"
+  DOTNET_BIN="${DOTNET_DIR}/dotnet"
 }
 
 check_web_health() {
@@ -116,16 +120,28 @@ is_zebra_bridge_process() {
 
 start_detached_server() {
   local log_file="$1"
-  local -a cmd
-  cmd=("${DOTNET_BIN}" run --project "${ROOT_DIR}/src/ZebraBridge.Web/ZebraBridge.Web.csproj")
+  local cmd
+  cmd="$(web_run_cmd)"
 
   if command -v setsid >/dev/null 2>&1; then
-    setsid "${cmd[@]}" > "${log_file}" 2>&1 < /dev/null &
+    setsid bash -lc "${cmd}" > "${log_file}" 2>&1 < /dev/null &
   else
-    nohup "${cmd[@]}" > "${log_file}" 2>&1 < /dev/null &
+    nohup bash -lc "${cmd}" > "${log_file}" 2>&1 < /dev/null &
   fi
 
   echo "$!"
+}
+
+web_run_cmd() {
+  local dotnet_quoted project_quoted
+  printf -v dotnet_quoted "%q" "${DOTNET_BIN}"
+  printf -v project_quoted "%q" "${ROOT_DIR}/src/ZebraBridge.Web/ZebraBridge.Web.csproj"
+
+  if [[ "${ZEBRA_WEB_NO_BUILD}" == "1" ]]; then
+    echo "${dotnet_quoted} run --no-build --project ${project_quoted} || ${dotnet_quoted} run --project ${project_quoted}"
+  else
+    echo "${dotnet_quoted} run --project ${project_quoted}"
+  fi
 }
 
 stop_existing_server() {
@@ -204,6 +220,12 @@ if [[ -z "${ASPNETCORE_URLS:-}" ]]; then
   export ASPNETCORE_URLS="http://${WEB_HOST}:${WEB_PORT}"
 fi
 
+if [[ "${ZEBRA_NO_TUI:-0}" == "1" ]]; then
+  BASE_URL="http://${WEB_HOST}:${WEB_PORT}"
+  stop_existing_server "${BASE_URL}" "${WEB_PORT}"
+  exec bash -lc "$(web_run_cmd)"
+fi
+
 if [[ "${1:-}" == "--daemon" || "${1:-}" == "--service" ]]; then
   shift || true
   LOG_DIR="${LOG_DIR:-${ROOT_DIR}/logs}"
@@ -231,6 +253,7 @@ fi
 
 if [[ "${1:-}" == "--tui" ]]; then
   use_screen="${ZEBRA_TUI_SCREEN:-0}"
+  tui_detach="${ZEBRA_TUI_DETACH:-0}"
   for arg in "$@"; do
     case "${arg}" in
       --screen)
@@ -239,8 +262,17 @@ if [[ "${1:-}" == "--tui" ]]; then
       --no-screen)
         use_screen=0
         ;;
+      --detach)
+        tui_detach=1
+        ;;
+      --no-detach)
+        tui_detach=0
+        ;;
     esac
   done
+  if [[ "${tui_detach}" != "0" ]]; then
+    use_screen=0
+  fi
   if [[ "${use_screen}" != "0" && -z "${STY:-}" && -z "${TMUX:-}" && -t 0 && -t 1 && -t 2 ]]; then
     if command -v screen >/dev/null 2>&1; then
       session="${ZEBRA_TUI_SESSION:-zebra-tui}"
@@ -297,6 +329,8 @@ if [[ "${1:-}" == "--tui" ]]; then
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --no-screen|--screen)
+        ;;
+      --detach|--no-detach)
         ;;
       --setup)
         FORCE_SETUP=1
@@ -363,6 +397,19 @@ if [[ "${1:-}" == "--tui" ]]; then
   if [[ "${server_started}" -eq 1 ]]; then
     show_boot_animation "${BASE_URL}"
   fi
+  if [[ "${tui_detach}" != "0" ]]; then
+    exit 0
+  fi
+  if [[ -z "${ZEBRA_TUI_URL:-}" ]]; then
+    if [[ "${WEB_HOST}" == "0.0.0.0" || "${WEB_HOST}" == "::" ]]; then
+      ZEBRA_TUI_URL="http://127.0.0.1:${WEB_PORT}"
+    else
+      ZEBRA_TUI_URL="http://${WEB_HOST}:${WEB_PORT}"
+    fi
+  fi
+  if [[ "${TUI_ARGS[*]:-}" != *"--url"* ]]; then
+    TUI_ARGS+=("--url" "${ZEBRA_TUI_URL}")
+  fi
   "${ROOT_DIR}/cli.sh" tui "${TUI_ARGS[@]}"
   exit 0
 fi
@@ -370,4 +417,4 @@ fi
 BASE_URL="http://${WEB_HOST}:${WEB_PORT}"
 stop_existing_server "${BASE_URL}" "${WEB_PORT}"
 
-exec "${DOTNET_BIN}" run --project "${ROOT_DIR}/src/ZebraBridge.Web/ZebraBridge.Web.csproj"
+exec bash -lc "$(web_run_cmd)"

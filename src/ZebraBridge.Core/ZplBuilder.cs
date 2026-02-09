@@ -8,11 +8,16 @@ public static class ZplBuilder
 
     public static string BuildResetPrinter(string eol) => string.Concat("~JA", eol);
 
-    public static string BuildEncodeCommandStream(string epcHex, RfidWriteOptions options, string eol, string? template = null)
+    public static string BuildEncodeCommandStream(
+        string epcHex,
+        RfidWriteOptions options,
+        string eol,
+        string? template = null,
+        IReadOnlyDictionary<string, string>? labelFields = null)
     {
         var zpl = string.IsNullOrWhiteSpace(template)
             ? BuildRfidWrite(epcHex, options, eol)
-            : RenderRfidWriteTemplate(template!, epcHex, options, eol);
+            : RenderRfidWriteTemplate(template!, epcHex, options, eol, labelFields);
 
         var stream = BuildResumePrinting(eol) + zpl;
 
@@ -79,7 +84,12 @@ public static class ZplBuilder
         return string.Join(eol, lines) + eol;
     }
 
-    public static string RenderRfidWriteTemplate(string template, string epcHex, RfidWriteOptions options, string eol)
+    public static string RenderRfidWriteTemplate(
+        string template,
+        string epcHex,
+        RfidWriteOptions options,
+        string eol,
+        IReadOnlyDictionary<string, string>? labelFields)
     {
         var epc = Epc.Normalize(epcHex);
         Epc.Validate(epc);
@@ -103,6 +113,15 @@ public static class ZplBuilder
             .Replace("{error_handling_action}", errorHandling, StringComparison.Ordinal)
             .Replace("{human_readable_zpl}", humanReadable, StringComparison.Ordinal)
             .Replace("{rfid_setup_zpl}", rfidSetup, StringComparison.Ordinal);
+
+        if (labelFields is not null)
+        {
+            foreach (var kv in labelFields)
+            {
+                var key = "{" + kv.Key + "}";
+                rendered = rendered.Replace(key, kv.Value ?? string.Empty, StringComparison.Ordinal);
+            }
+        }
 
         var lines = rendered.Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None).ToList();
         if (!lines.Any(line => line.TrimStart().StartsWith("^RS", StringComparison.Ordinal)))
