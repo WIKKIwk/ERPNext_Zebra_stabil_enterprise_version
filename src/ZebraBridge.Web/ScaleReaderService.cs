@@ -25,6 +25,11 @@ public sealed class ScaleReaderService : BackgroundService
     private readonly IHttpClientFactory _clientFactory;
     private readonly ILogger<ScaleReaderService> _logger;
     private readonly SemaphoreSlim _pushLock = new(1, 1);
+    private readonly string _portCacheFile;
+
+    private int _portCacheWritten;
+    private string? _lastResolvedPort;
+    private bool _lastResolvedFromCache;
 
     private long _lastPushTs;
     private double? _lastPushWeight;
@@ -44,6 +49,7 @@ public sealed class ScaleReaderService : BackgroundService
         _erpTarget = ResolveErpTarget(erpOptions);
         _clientFactory = clientFactory;
         _logger = logger;
+        _portCacheFile = ResolvePortCacheFile();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -77,6 +83,15 @@ public sealed class ScaleReaderService : BackgroundService
             }
             catch (Exception ex)
             {
+                if (_lastResolvedFromCache && !string.IsNullOrWhiteSpace(_lastResolvedPort) &&
+                    string.Equals(portName, _lastResolvedPort, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Cached port became invalid (device unplugged/permissions changed). Clear cache so the next
+                    // iteration can re-detect automatically.
+                    InvalidatePortCache();
+                    _lastResolvedFromCache = false;
+                }
+
                 _logger.LogWarning(ex, "Scale port error: {Port}", portName);
                 UpdateError($"Scale error: {ex.Message}", portName);
                 await DelaySafe(TimeSpan.FromSeconds(2), stoppingToken);
@@ -177,6 +192,8 @@ public sealed class ScaleReaderService : BackgroundService
             lastWeight = weight;
             lastStable = stable;
 
+            PersistPortCacheOnce(port.PortName);
+
             _scaleState.Update(new ScaleReading(
                 Ok: true,
                 Weight: weight,
@@ -213,23 +230,29 @@ public sealed class ScaleReaderService : BackgroundService
 
     private string ResolvePortName()
     {
-        var ports = ScalePortEnumerator.ListPorts()
-            .Select(port => port.Device)
-            .Where(port => !string.IsNullOrWhiteSpace(port))
-            .ToList();
+        _lastResolvedPort = null;
+        _lastResolvedFromCache = false;
 
-        if (!string.IsNullOrWhiteSpace(_options.Port))
+        var configured = NormalizePortName(_options.Port);
+        if (!string.IsNullOrWhiteSpace(configured))
         {
-            var configured = _options.Port.Trim();
-            if (ports.Count == 0)
-            {
-                return configured;
-            }
-            if (ports.Any(port => string.Equals(port, configured, StringComparison.OrdinalIgnoreCase)))
-            {
-                return configured;
-            }
+            _lastResolvedPort = configured;
+            return configured;
         }
+
+        var cached = LoadPortCache();
+        if (!string.IsNullOrWhiteSpace(cached))
+        {
+            _lastResolvedPort = cached;
+            _lastResolvedFromCache = true;
+            return cached;
+        }
+
+        var ports = ScalePortEnumerator.ListPorts()
+            .Select(port => NormalizePortName(port.Device))
+            .Where(port => !string.IsNullOrWhiteSpace(port))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         if (ports.Count == 0)
         {
@@ -238,32 +261,115 @@ public sealed class ScaleReaderService : BackgroundService
 
         if (ports.Count == 1)
         {
+            _lastResolvedPort = ports[0];
             return ports[0];
         }
 
-        var timeoutSec = Math.Clamp(_options.DetectTimeoutSec, 0.1, 2.0);
+        // On Linux, USB-serial scales almost always appear as ttyUSB*/ttyACM*.
+        // Re-order ports so they are probed first. (Still probes all if needed.)
+        if (OperatingSystem.IsLinux())
+        {
+            ports = ports
+                .OrderByDescending(IsUsbSerialPort)
+                .ThenBy(port => port, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        var timeoutSec = Math.Clamp(_options.DetectTimeoutSec, 0.05, 2.0);
         var timeout = TimeSpan.FromSeconds(timeoutSec);
-        var dataPorts = new List<string>();
 
-        foreach (var port in ports)
+        var (detectedPort, foundWeight) = DetectPortByProbing(ports, timeout);
+        if (string.IsNullOrWhiteSpace(detectedPort))
         {
-            var probe = ProbePortForWeight(port, timeout);
-            if (probe.FoundWeight)
+            return string.Empty;
+        }
+
+        _lastResolvedPort = detectedPort;
+        if (foundWeight)
+        {
+            PersistPortCacheOnce(detectedPort);
+        }
+        return detectedPort;
+    }
+
+    private static string NormalizePortName(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+    }
+
+    private static bool IsUsbSerialPort(string port)
+    {
+        var p = port ?? string.Empty;
+        return p.Contains("ttyUSB", StringComparison.OrdinalIgnoreCase)
+               || p.Contains("ttyACM", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private (string Port, bool FoundWeight) DetectPortByProbing(IReadOnlyList<string> ports, TimeSpan timeout)
+    {
+        var concurrency = Math.Clamp(_options.DetectConcurrency, 1, 32);
+        string? foundPort = null;
+        string? dataPort = null;
+
+        try
+        {
+            Parallel.ForEach(
+                ports,
+                new ParallelOptions { MaxDegreeOfParallelism = concurrency },
+                (port, state) =>
+                {
+                    if (Volatile.Read(ref foundPort) is not null)
+                    {
+                        state.Stop();
+                        return;
+                    }
+
+                    var probe = ProbePortForWeight(port, timeout);
+                    if (!probe.FoundWeight)
+                    {
+                        if (probe.HasData)
+                        {
+                            Interlocked.CompareExchange(ref dataPort, port, null);
+                        }
+                        return;
+                    }
+
+                    if (Interlocked.CompareExchange(ref foundPort, port, null) is null)
+                    {
+                        state.Stop();
+                    }
+                });
+        }
+        catch
+        {
+            // Fall back to sequential detection if parallel probing fails for any reason.
+            foreach (var port in ports)
             {
-                return port;
-            }
-            if (probe.HasData)
-            {
-                dataPorts.Add(port);
+                var probe = ProbePortForWeight(port, timeout);
+                if (probe.FoundWeight)
+                {
+                    return (port, true);
+                }
+                if (probe.HasData && dataPort is null)
+                {
+                    dataPort = port;
+                }
             }
         }
 
-        if (dataPorts.Count > 0)
+        if (foundPort is not null)
         {
-            return dataPorts[0];
+            return (foundPort, true);
         }
 
-        return ports[0];
+        // If we couldn't confidently parse a weight, pick the first port that has any data,
+        // otherwise fall back to the first port in the list (keeps compatibility with older
+        // non-streaming scale setups).
+        if (dataPort is not null)
+        {
+            return (dataPort, false);
+        }
+
+        return ports.Count > 0 ? (ports[0], false) : (string.Empty, false);
     }
 
     private TimeSpan? GetReconnectIdleTimeout()
@@ -290,6 +396,198 @@ public sealed class ScaleReaderService : BackgroundService
 
         port.Open();
         return port;
+    }
+
+    private static string ResolvePortCacheFile()
+    {
+        var overridePath = Environment.GetEnvironmentVariable("ZEBRA_SCALE_CACHE_FILE");
+        if (!string.IsNullOrWhiteSpace(overridePath))
+        {
+            return overridePath.Trim();
+        }
+
+        // XLCU sets XDG_CACHE_HOME to "<zebra_repo>/.cache" so this persists on the host even in Docker.
+        var xdgCache = Environment.GetEnvironmentVariable("XDG_CACHE_HOME");
+        if (!string.IsNullOrWhiteSpace(xdgCache))
+        {
+            return Path.Combine(xdgCache.Trim(), "zebra-scale.by-id");
+        }
+
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrWhiteSpace(home))
+        {
+            return Path.Combine(home, ".cache", "zebra-scale.by-id");
+        }
+
+        return Path.Combine(AppContext.BaseDirectory, "zebra-scale.by-id");
+    }
+
+    private string? LoadPortCache()
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_portCacheFile) || !File.Exists(_portCacheFile))
+            {
+                return null;
+            }
+
+            var value = (File.ReadAllText(_portCacheFile) ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            if (OperatingSystem.IsLinux() &&
+                (value.StartsWith("/dev/", StringComparison.Ordinal) ||
+                 value.StartsWith("/run/", StringComparison.Ordinal)) &&
+                !File.Exists(value))
+            {
+                return null;
+            }
+
+            return value;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void InvalidatePortCache()
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(_portCacheFile) && File.Exists(_portCacheFile))
+            {
+                File.Delete(_portCacheFile);
+            }
+        }
+        catch
+        {
+        }
+
+        Interlocked.Exchange(ref _portCacheWritten, 0);
+    }
+
+    private void PersistPortCacheOnce(string portName)
+    {
+        if (Interlocked.CompareExchange(ref _portCacheWritten, 1, 0) != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var value = NormalizePortName(portName);
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(_portCacheFile))
+            {
+                return;
+            }
+
+            // If the port is already a stable by-id path, keep it.
+            if (OperatingSystem.IsLinux() && value.StartsWith("/dev/serial/by-id/", StringComparison.Ordinal))
+            {
+                WritePortCache(value);
+                return;
+            }
+
+            if (OperatingSystem.IsLinux())
+            {
+                var normalized = NormalizeLinuxPortPath(value);
+                var byId = FindSerialByIdAlias(normalized);
+                WritePortCache(string.IsNullOrWhiteSpace(byId) ? normalized : byId);
+                return;
+            }
+
+            WritePortCache(value);
+        }
+        catch
+        {
+        }
+    }
+
+    private void WritePortCache(string value)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(_portCacheFile);
+            if (!string.IsNullOrWhiteSpace(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            File.WriteAllText(_portCacheFile, value.Trim());
+        }
+        catch
+        {
+        }
+    }
+
+    private static string NormalizeLinuxPortPath(string port)
+    {
+        var p = (port ?? string.Empty).Trim();
+        if (p.StartsWith("/dev/", StringComparison.Ordinal))
+        {
+            return p;
+        }
+
+        if (p.StartsWith("tty", StringComparison.OrdinalIgnoreCase))
+        {
+            return "/dev/" + p;
+        }
+
+        return p;
+    }
+
+    private static string? FindSerialByIdAlias(string portPath)
+    {
+        try
+        {
+            if (!OperatingSystem.IsLinux())
+            {
+                return null;
+            }
+
+            var dir = "/dev/serial/by-id";
+            if (!Directory.Exists(dir))
+            {
+                return null;
+            }
+
+            var normalized = NormalizeLinuxPortPath(portPath);
+            foreach (var entry in Directory.EnumerateFiles(dir))
+            {
+                try
+                {
+                    var info = new FileInfo(entry);
+                    var target = info.ResolveLinkTarget(true);
+                    if (target is null)
+                    {
+                        continue;
+                    }
+
+                    var targetPath = NormalizeLinuxPortPath(target.FullName);
+                    if (string.Equals(targetPath, normalized, StringComparison.Ordinal))
+                    {
+                        return entry;
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static (double Weight, string Unit, bool? Stable)? TryParseWeight(string text, string defaultUnit)

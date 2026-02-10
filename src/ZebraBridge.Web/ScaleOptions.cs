@@ -12,6 +12,7 @@ public sealed class ScaleOptions
     public string Unit { get; set; } = "kg";
     public double MinChange { get; set; } = 0.001;
     public double DetectTimeoutSec { get; set; } = 0.6;
+    public int DetectConcurrency { get; set; } = 8;
     public double ReconnectIdleSec { get; set; } = 3.0;
     public bool PushEnabled { get; set; } = true;
     public int PushMinIntervalMs { get; set; } = 100;
@@ -37,6 +38,7 @@ public sealed class ScaleOptions
         Unit = Override(Unit, "ZEBRA_SCALE_UNIT") ?? Unit;
         MinChange = OverrideDouble(MinChange, "ZEBRA_SCALE_MIN_CHANGE");
         DetectTimeoutSec = OverrideDouble(DetectTimeoutSec, "ZEBRA_SCALE_DETECT_TIMEOUT_SEC");
+        DetectConcurrency = OverrideInt(DetectConcurrency, "ZEBRA_SCALE_DETECT_CONCURRENCY");
         ReconnectIdleSec = OverrideDouble(ReconnectIdleSec, "ZEBRA_SCALE_RECONNECT_IDLE_SEC");
         PushEnabled = OverrideBool(PushEnabled, "ZEBRA_SCALE_PUSH_ENABLED");
         PushMinIntervalMs = OverrideInt(PushMinIntervalMs, "ZEBRA_SCALE_PUSH_MIN_INTERVAL_MS");
