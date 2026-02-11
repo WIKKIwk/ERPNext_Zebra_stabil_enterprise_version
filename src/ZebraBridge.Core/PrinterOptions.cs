@@ -9,6 +9,7 @@ public sealed class PrinterOptions
     public int ProductId { get; set; } = 0x0193;
     public int UsbTimeoutMs { get; set; } = 5000;
     public bool FeedAfterEncode { get; set; } = true;
+    public bool ResetBeforeEncode { get; set; } = true;
     public int LabelsToTryOnError { get; set; } = 1;
     public string ErrorHandlingAction { get; set; } = "N";
     public string ZplEol { get; set; } = "\n";
@@ -24,6 +25,7 @@ public sealed class PrinterOptions
         UsbTimeoutMs = OverrideInt(UsbTimeoutMs, "ZEBRA_USB_TIMEOUT_MS");
         Transport = Override(Transport, "ZEBRA_TRANSPORT") ?? Transport;
         FeedAfterEncode = OverrideBool(FeedAfterEncode, "ZEBRA_FEED_AFTER_ENCODE");
+        ResetBeforeEncode = OverrideBool(ResetBeforeEncode, "ZEBRA_RESET_BEFORE_ENCODE");
         LabelsToTryOnError = OverrideInt(LabelsToTryOnError, "ZEBRA_RFID_LABELS_TO_TRY_ON_ERROR");
         ErrorHandlingAction = Override(ErrorHandlingAction, "ZEBRA_RFID_ERROR_HANDLING_ACTION") ?? ErrorHandlingAction;
         ZplEol = Override(ZplEol, "ZEBRA_ZPL_EOL") ?? ZplEol;

@@ -236,6 +236,7 @@ public sealed class ScaleReaderService : BackgroundService
         var configured = NormalizePortName(_options.Port);
         if (!string.IsNullOrWhiteSpace(configured))
         {
+            configured = ResolveConfiguredPortPath(configured);
             _lastResolvedPort = configured;
             return configured;
         }
@@ -251,6 +252,7 @@ public sealed class ScaleReaderService : BackgroundService
         var ports = ScalePortEnumerator.ListPorts()
             .Select(port => NormalizePortName(port.Device))
             .Where(port => !string.IsNullOrWhiteSpace(port))
+            .Where(IsAllowedAutoPort)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -297,11 +299,71 @@ public sealed class ScaleReaderService : BackgroundService
         return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
     }
 
+    private static string ResolveConfiguredPortPath(string configured)
+    {
+        var value = NormalizePortName(configured);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        if (!OperatingSystem.IsLinux())
+        {
+            return value;
+        }
+
+        try
+        {
+            if (!File.Exists(value))
+            {
+                return value;
+            }
+
+            var info = new FileInfo(value);
+            var target = info.ResolveLinkTarget(true);
+            if (target is null)
+            {
+                return value;
+            }
+
+            var resolved = NormalizePortName(target.FullName);
+            if (!string.IsNullOrWhiteSpace(resolved) && resolved.StartsWith("/dev/", StringComparison.Ordinal))
+            {
+                return resolved;
+            }
+
+            return value;
+        }
+        catch
+        {
+            return value;
+        }
+    }
+
     private static bool IsUsbSerialPort(string port)
     {
         var p = port ?? string.Empty;
         return p.Contains("ttyUSB", StringComparison.OrdinalIgnoreCase)
                || p.Contains("ttyACM", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsAllowedAutoPort(string port)
+    {
+        if (string.IsNullOrWhiteSpace(port))
+        {
+            return false;
+        }
+
+        if (!OperatingSystem.IsLinux())
+        {
+            return true;
+        }
+
+        var p = port.Trim();
+        return !p.StartsWith("/dev/pts/", StringComparison.OrdinalIgnoreCase)
+               && !p.StartsWith("pts/", StringComparison.OrdinalIgnoreCase)
+               && !string.Equals(p, "/dev/ptmx", StringComparison.OrdinalIgnoreCase)
+               && !string.Equals(p, "ptmx", StringComparison.OrdinalIgnoreCase);
     }
 
     private (string Port, bool FoundWeight) DetectPortByProbing(IReadOnlyList<string> ports, TimeSpan timeout)

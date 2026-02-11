@@ -89,9 +89,28 @@ public sealed class EncodeService : IEncodeService
             return new EncodeResult(true, "Dry-run: ZPL generated.", epcHex, zpl);
         }
 
+        var loggedWeight = request.LabelFields is null
+            ? string.Empty
+            : request.LabelFields.TryGetValue("weight_kg", out var weight) ? weight ?? string.Empty : string.Empty;
+        var loggedProduct = request.LabelFields is null
+            ? string.Empty
+            : request.LabelFields.TryGetValue("product_name", out var product) ? product ?? string.Empty : string.Empty;
+
         await _printCoordinator.RunLockedAsync(async () =>
         {
             var transport = _transportFactory.Create();
+
+            if (_printerOptions.ResetBeforeEncode)
+            {
+                var reset = ZplBuilder.BuildResetPrinter(_printerOptions.ZplEol)
+                            + ZplBuilder.BuildResumePrinting(_printerOptions.ZplEol);
+                await transport.SendAsync(Encoding.ASCII.GetBytes(reset), cancellationToken);
+            }
+
+            Console.WriteLine(
+                $"[encode] epc={epcHex} weight_kg={loggedWeight} product={loggedProduct} " +
+                $"reset_before_encode={_printerOptions.ResetBeforeEncode}");
+
             await transport.SendAsync(Encoding.ASCII.GetBytes(zpl), cancellationToken);
             return 0;
         }, cancellationToken);

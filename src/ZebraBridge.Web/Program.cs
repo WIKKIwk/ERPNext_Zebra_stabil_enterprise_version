@@ -102,6 +102,7 @@ app.MapGet("/api/v1/config", (PrinterOptions printer) => Results.Ok(new
 {
     device_path = printer.DevicePath ?? string.Empty,
     feed_after_encode = printer.FeedAfterEncode,
+    reset_before_encode = printer.ResetBeforeEncode,
     zebra_template_enabled = !string.IsNullOrWhiteSpace(printer.RfidZplTemplate),
     transport = printer.Transport,
     transceive_supported = string.Equals(printer.Transport, "usb", StringComparison.OrdinalIgnoreCase)
