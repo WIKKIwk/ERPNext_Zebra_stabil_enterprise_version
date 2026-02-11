@@ -336,6 +336,7 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
         Timeout = TimeSpan.FromMilliseconds(httpTimeoutMs)
     };
     Console.CursorVisible = false;
+    Console.Write("\x1b[2J\x1b[H"); // clear screen + cursor home on first frame
 
     var exit = false;
     Console.CancelKeyPress += (_, args) =>
@@ -526,23 +527,52 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
         var statusBadge = printerConnected ? "OK" : "WAIT";
         var printerLine = $"Printer: {printerState} [{statusBadge}] pulse:{pulse} ({printerDetail.Trim()})";
 
-        Console.Clear();
-        Console.WriteLine("ZebraBridge Terminal UI");
-        Console.WriteLine("==============================================");
-        Console.WriteLine($"Time   : {now:yyyy-MM-dd HH:mm:ss}");
-        Console.WriteLine($"Base   : {baseUrl}");
-        Console.WriteLine($"{modeLine}");
-        Console.WriteLine("----------------------------------------------");
-        Console.WriteLine(healthLine);
-        Console.WriteLine(configLine);
-        Console.WriteLine(printerLine);
-        Console.WriteLine(scaleLine);
-        Console.WriteLine("----------------------------------------------");
-        Console.WriteLine("Keys   : [Q] Quit  [S] Setup");
+        // Render via ANSI escape codes — works reliably in Docker exec -it,
+        // raw terminals, and pseudo-ttys where Console.SetCursorPosition may fail.
+        var w = 80;
+        try { w = Console.WindowWidth; } catch { /* non-interactive */ }
+        if (w < 20) w = 80; // guard against bad values
+
+        var separator = new string('-', Math.Min(46, w - 1));
+        var lines = new[]
+        {
+            "ZebraBridge Terminal UI",
+            new string('=', Math.Min(46, w - 1)),
+            $"Time   : {now:yyyy-MM-dd HH:mm:ss}",
+            $"Base   : {baseUrl}",
+            modeLine,
+            separator,
+            healthLine,
+            configLine,
+            printerLine,
+            scaleLine,
+            separator,
+            "Keys   : [Q] Quit  [S] Setup",
+        };
+
+        // Build entire frame in one Write to avoid partial renders.
+        var sb = new System.Text.StringBuilder(1024);
+        sb.Append("\x1b[H");      // cursor home (0,0)
+        foreach (var line in lines)
+        {
+            // Truncate to w-1 so line never wraps (reserve 1 col).
+            var maxLen = w - 1;
+            var text = line.Length > maxLen ? line[..maxLen] : line;
+            sb.Append(text);
+            sb.Append("\x1b[K");  // erase to end of line
+            sb.Append('\n');
+        }
+        // Erase 3 extra lines to clean up after resize.
+        for (var i = 0; i < 3; i++)
+        {
+            sb.Append("\x1b[K\n");
+        }
+        Console.Write(sb.ToString());
 
         await Task.Delay(refreshIntervalMs);
     }
 
+    Console.Write("\x1b[2J\x1b[H"); // clear screen on exit
     Console.CursorVisible = true;
     return 0;
 }
