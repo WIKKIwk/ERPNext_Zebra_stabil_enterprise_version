@@ -71,4 +71,4 @@ if [[ "${CLI_NO_BUILD:-0}" != "1" ]]; then
   fi
 fi
 
-exec "${DOTNET_BIN}" run --no-build --project "${ROOT_DIR}/src/ZebraBridge.Cli/ZebraBridge.Cli.csproj" -- "$@"
+exec "${DOTNET_BIN}" run --no-build --no-restore --project "${ROOT_DIR}/src/ZebraBridge.Cli/ZebraBridge.Cli.csproj" -- "$@"

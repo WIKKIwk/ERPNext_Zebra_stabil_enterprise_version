@@ -3,6 +3,7 @@ namespace ZebraBridge.Web;
 public sealed class ScaleOptions
 {
     public bool Enabled { get; set; } = true;
+    public bool Simulate { get; set; } = false;
     public string? Port { get; set; }
     public int Baudrate { get; set; } = 9600;
     public int Bytesize { get; set; } = 8;
@@ -29,6 +30,7 @@ public sealed class ScaleOptions
     public void ApplyEnvironment()
     {
         Enabled = OverrideBool(Enabled, "ZEBRA_SCALE_ENABLED");
+        Simulate = OverrideBool(Simulate, "ZEBRA_SCALE_SIMULATE");
         Port = Override(Port, "ZEBRA_SCALE_PORT");
         Baudrate = OverrideInt(Baudrate, "ZEBRA_SCALE_BAUDRATE");
         Bytesize = OverrideInt(Bytesize, "ZEBRA_SCALE_BYTESIZE");

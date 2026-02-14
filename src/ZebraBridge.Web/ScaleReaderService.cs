@@ -60,6 +60,14 @@ public sealed class ScaleReaderService : BackgroundService
             return;
         }
 
+        if (_options.Simulate)
+        {
+            _logger.LogInformation("Scale simulation mode active");
+            UpdateOk("SIMULATE");
+            await SimulateLoopAsync(stoppingToken);
+            return;
+        }
+
         while (!stoppingToken.IsCancellationRequested)
         {
             var portName = ResolvePortName();
@@ -106,6 +114,41 @@ public sealed class ScaleReaderService : BackgroundService
                 {
                 }
             }
+        }
+    }
+
+    private async Task SimulateLoopAsync(CancellationToken stoppingToken)
+    {
+        var rng = new Random();
+        double weight = 0;
+        bool onScale = false;
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            if (!onScale && rng.NextDouble() < 0.3)
+            {
+                weight = Math.Round(0.5 + rng.NextDouble() * 4.5, 3);
+                onScale = true;
+            }
+            else if (onScale && rng.NextDouble() < 0.15)
+            {
+                weight = 0;
+                onScale = false;
+            }
+
+            _scaleState.Update(new ScaleReading(
+                Ok: true,
+                Weight: weight,
+                Unit: _options.Unit,
+                Stable: true,
+                TimestampMs: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Port: "SIMULATE",
+                Raw: $"ST,GS, {weight:F3} {_options.Unit}",
+                Error: string.Empty
+            ));
+
+            await MaybePushAsync(weight, _options.Unit, true, "SIMULATE", stoppingToken);
+            await Task.Delay(500, stoppingToken);
         }
     }
 

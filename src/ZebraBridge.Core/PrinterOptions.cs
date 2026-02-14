@@ -13,11 +13,13 @@ public sealed class PrinterOptions
     public int LabelsToTryOnError { get; set; } = 1;
     public string ErrorHandlingAction { get; set; } = "N";
     public string ZplEol { get; set; } = "\n";
+    public bool Simulate { get; set; } = false;
     public string? RfidZplTemplate { get; set; }
     public string? RfidZplTemplatePath { get; set; }
 
     public void ApplyEnvironment()
     {
+        Simulate = OverrideBool(Simulate, "ZEBRA_PRINTER_SIMULATE");
         DevicePath = Override(DevicePath, "ZEBRA_DEVICE_PATH");
         PrinterName = Override(PrinterName, "ZEBRA_PRINTER_NAME");
         VendorId = OverrideInt(VendorId, "ZEBRA_VENDOR_ID");

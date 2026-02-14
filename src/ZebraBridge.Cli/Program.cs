@@ -558,14 +558,16 @@ static async Task<int> HandleTuiAsync(ArgParser parser)
             // Truncate to w-1 so line never wraps (reserve 1 col).
             var maxLen = w - 1;
             var text = line.Length > maxLen ? line[..maxLen] : line;
+            // Use CRLF explicitly; some PTYs do not map '\n' to '\r\n'.
+            sb.Append('\r');
             sb.Append(text);
             sb.Append("\x1b[K");  // erase to end of line
-            sb.Append('\n');
+            sb.Append("\r\n");
         }
         // Erase 3 extra lines to clean up after resize.
         for (var i = 0; i < 3; i++)
         {
-            sb.Append("\x1b[K\n");
+            sb.Append("\r\x1b[K\r\n");
         }
         Console.Write(sb.ToString());
 

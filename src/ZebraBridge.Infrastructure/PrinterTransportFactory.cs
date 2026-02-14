@@ -50,7 +50,7 @@ public sealed class PrinterTransportFactory : IPrinterTransportFactory
             throw new PrinterNotFoundException("No Zebra device path found.");
         }
 
-        return new DeviceFilePrinterTransport(devicePath!);
+        return new DeviceFilePrinterTransport(devicePath!, _options.UsbTimeoutMs);
     }
 
     private static string? DetectLinuxDevicePath()

@@ -138,7 +138,7 @@ web_run_cmd() {
   printf -v project_quoted "%q" "${ROOT_DIR}/src/ZebraBridge.Web/ZebraBridge.Web.csproj"
 
   if [[ "${ZEBRA_WEB_NO_BUILD}" == "1" ]]; then
-    echo "${dotnet_quoted} run --no-build --project ${project_quoted} || ${dotnet_quoted} run --project ${project_quoted}"
+    echo "${dotnet_quoted} run --no-build --no-restore --project ${project_quoted} || ${dotnet_quoted} run --project ${project_quoted}"
   else
     echo "${dotnet_quoted} run --project ${project_quoted}"
   fi

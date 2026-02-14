@@ -84,9 +84,9 @@ public sealed class EncodeService : IEncodeService
             _printerOptions.RfidZplTemplate,
             request.LabelFields);
 
-        if (request.DryRun)
+        if (request.DryRun || _printerOptions.Simulate)
         {
-            return new EncodeResult(true, "Dry-run: ZPL generated.", epcHex, zpl);
+            return new EncodeResult(true, "Simulate: ZPL generated, printer skipped.", epcHex, zpl);
         }
 
         var loggedWeight = request.LabelFields is null

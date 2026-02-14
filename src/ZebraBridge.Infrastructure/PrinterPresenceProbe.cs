@@ -61,8 +61,8 @@ public static class PrinterPresenceProbe
                 "device path not found");
         }
 
-        var connected = File.Exists(devicePath);
-        var detail = connected ? "device present" : $"device missing: {devicePath}";
+        var connected = IsDeviceReady(devicePath);
+        var detail = connected ? "device present" : $"device not ready: {devicePath}";
         return new PrinterPresenceStatus(
             connected,
             transport,
@@ -113,12 +113,39 @@ public static class PrinterPresenceProbe
 
         foreach (var candidate in candidates)
         {
-            if (File.Exists(candidate))
+            if (IsDeviceReady(candidate))
             {
                 return candidate;
             }
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// File.Exists faqat fayl borligini tekshiradi — Docker /dev mount qilganda
+    /// device fayl har doim mavjud, printer ulanmagan bo'lsa ham.
+    /// Bu metod device faylni ochishga urinib, real printer mavjudligini aniqlaydi.
+    /// </summary>
+    private static bool IsDeviceReady(string devicePath)
+    {
+        if (!File.Exists(devicePath))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var stream = new FileStream(
+                devicePath,
+                FileMode.Open,
+                FileAccess.Write,
+                FileShare.ReadWrite);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
